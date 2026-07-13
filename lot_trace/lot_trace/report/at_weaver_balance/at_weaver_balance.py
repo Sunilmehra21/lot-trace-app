@@ -1,22 +1,87 @@
+"""
+Report: At-Weaver Balance
+Enhanced to include weaved pcs received count
+"""
+
 import frappe
 from frappe import _
 
-from lot_trace.api.lot import at_weaver_balance
-
 
 def execute(filters=None):
-    filters = frappe._dict(filters or {})
-    data = at_weaver_balance(weaver=filters.weaver, root_lot=filters.root_lot)
-    columns = [
-        {"label": _("Root Lot"), "fieldname": "root_lot", "fieldtype": "Link",
-         "options": "Root Lot", "width": 160},
-        {"label": _("Weaver"), "fieldname": "weaver", "fieldtype": "Link",
-         "options": "Supplier", "width": 160},
-        {"label": _("Dyed Yarn Sold (Kg)"), "fieldname": "dyed_yarn_sold_kg",
-         "fieldtype": "Float", "width": 140},
-        {"label": _("Consumed per BOM (Kg)"), "fieldname": "consumed_equiv_kg",
-         "fieldtype": "Float", "width": 160},
-        {"label": _("Balance at Weaver (Kg)"), "fieldname": "balance_at_weaver_kg",
-         "fieldtype": "Float", "width": 160},
-    ]
+    """
+    Generate At-Weaver Balance report with weaved pcs count.
+
+    Columns:
+    - Root Lot
+    - Weaver
+    - Dyed Yarn Sold (kg)
+    - Weaved Pcs Received
+    - Consumed Equiv (kg)
+    - Balance at Weaver (kg)
+    """
+    if not filters:
+        filters = {}
+
+    columns = get_columns()
+    data = get_data(filters)
+
     return columns, data
+
+
+def get_columns():
+    """Define report columns."""
+    return [
+        {
+            "fieldname": "root_lot",
+            "label": _("Root Lot"),
+            "fieldtype": "Link",
+            "options": "Root Lot",
+            "width": 150,
+        },
+        {
+            "fieldname": "weaver",
+            "label": _("Weaver (Customer)"),
+            "fieldtype": "Link",
+            "options": "Customer",
+            "width": 150,
+        },
+        {
+            "fieldname": "dyed_yarn_sold_kg",
+            "label": _("Dyed Yarn Sold (kg)"),
+            "fieldtype": "Float",
+            "width": 140,
+        },
+        {
+            "fieldname": "weaved_pcs_received",
+            "label": _("Weaved Pcs Received"),
+            "fieldtype": "Float",
+            "width": 140,
+        },
+        {
+            "fieldname": "consumed_equiv_kg",
+            "label": _("Consumed Equiv (kg)"),
+            "fieldtype": "Float",
+            "width": 140,
+        },
+        {
+            "fieldname": "balance_at_weaver_kg",
+            "label": _("Balance at Weaver (kg)"),
+            "fieldtype": "Float",
+            "width": 140,
+        },
+    ]
+
+
+def get_data(filters):
+    """
+    Fetch data from at_weaver_balance() API function.
+    """
+    from lot_trace.api.lot import at_weaver_balance
+
+    weaver = filters.get("weaver")
+    root_lot = filters.get("root_lot")
+
+    # Call the API function
+    rows = at_weaver_balance(weaver=weaver, root_lot=root_lot)
+
+    return rows
