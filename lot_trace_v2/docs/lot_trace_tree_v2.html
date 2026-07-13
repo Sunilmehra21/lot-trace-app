@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Root Lot Trace Tree — Lot Trace v2 (UI Mockup)</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", -apple-system, Roboto, sans-serif; background: #f3f3f3;
+         color: #1f272e; font-size: 13px; }
+  .navbar { background: #fff; border-bottom: 1px solid #e2e6e9; padding: 8px 20px;
+            display: flex; align-items: center; gap: 14px; }
+  .navbar .crumb { color: #74808b; font-size: 12px; }
+  .navbar .crumb b { color: #1f272e; font-size: 15px; font-weight: 600; }
+  .badge-mock { margin-left: auto; background: #fff3cd; color: #8a6d00;
+    border: 1px solid #ffe08a; padding: 2px 10px; border-radius: 10px; font-size: 11px; }
+  .filterbar { background: #fff; border-bottom: 1px solid #e2e6e9; padding: 12px 20px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 11px; color: #74808b; }
+  .field .control { border: 1px solid #d1d8dd; border-radius: 6px; background: #f8f9fa;
+    padding: 6px 10px; min-width: 220px; font-size: 12.5px; display: flex; gap: 6px; }
+  .control .caret { margin-left: auto; color: #a0aab3; font-size: 10px; }
+  .seg { display: flex; border: 1px solid #d1d8dd; border-radius: 6px; overflow: hidden; }
+  .seg button { border: none; background: #fff; padding: 7px 16px; font-size: 12.5px;
+    cursor: pointer; color: #4c5a67; }
+  .seg button.active { background: #2490ef; color: #fff; font-weight: 600; }
+  .btn { border: 1px solid #d1d8dd; background: #fff; border-radius: 6px;
+    padding: 7px 14px; font-size: 12.5px; cursor: pointer; }
+  .btn.primary { background: #2490ef; border-color: #2490ef; color: #fff; font-weight: 600; }
+  .layout { display: flex; gap: 16px; padding: 16px 20px; align-items: flex-start; }
+  .tree-panel { flex: 1; background: #fff; border: 1px solid #e2e6e9; border-radius: 8px;
+    padding: 18px 20px; min-height: 480px; overflow-x: auto; }
+  .side-panel { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+  .card { background: #fff; border: 1px solid #e2e6e9; border-radius: 8px; padding: 14px 16px; }
+  .card h4 { font-size: 12px; color: #74808b; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .4px; margin-bottom: 10px; }
+  .kv { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12.5px; }
+  .kv .k { color: #74808b; } .kv .v { font-weight: 600; }
+  .tree-title { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .tree-title h3 { font-size: 14px; font-weight: 600; }
+  .dir-tag { font-size: 11px; padding: 2px 10px; border-radius: 10px;
+    background: #e8f3fd; color: #1470b8; border: 1px solid #bcdcf5; }
+  ul.tree { list-style: none; }
+  ul.tree ul { list-style: none; padding-left: 34px; position: relative; }
+  ul.tree ul::before { content: ""; position: absolute; left: 15px; top: 0; bottom: 14px;
+    border-left: 1.5px dashed #c8d1d9; }
+  ul.tree ul li { position: relative; }
+  ul.tree ul li::before { content: ""; position: absolute; left: -19px; top: 21px;
+    width: 18px; border-top: 1.5px dashed #c8d1d9; }
+  .node { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; }
+  .toggler { width: 20px; height: 20px; border: 1px solid #c8d1d9; border-radius: 5px;
+    background: #fff; color: #4c5a67; font-size: 11px; line-height: 1; cursor: pointer;
+    flex-shrink: 0; margin-top: 6px; display: flex; align-items: center;
+    justify-content: center; user-select: none; }
+  .toggler.leaf { visibility: hidden; }
+  .lotcard { border: 1px solid #e2e6e9; border-radius: 8px; padding: 8px 12px;
+    background: #fbfcfd; min-width: 480px; cursor: pointer; transition: box-shadow .12s; }
+  .lotcard:hover { box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+  .lotcard.selected { border-color: #2490ef; background: #f0f7fe; }
+  .lotcard.mv { background: #fff; border-style: dotted; min-width: 440px; padding: 6px 10px; }
+  .row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .lotcode { font-weight: 700; font-size: 13px; }
+  .rootpart { color: #5e35b1; } .suffix { color: #1f272e; }
+  .stage { font-size: 10.5px; font-weight: 600; padding: 1.5px 8px; border-radius: 9px;
+    text-transform: uppercase; letter-spacing: .3px; }
+  .st-nt { background: #ede7f6; color: #5e35b1; }
+  .st-dy { background: #e3f2fd; color: #1565c0; }
+  .st-wv { background: #e0f2f1; color: #00695c; }
+  .st-ct, .st-st, .st-em, .st-fn, .st-pk { background: #fff8e1; color: #a06b00; }
+  .st-fg { background: #fce4ec; color: #ad1457; }
+  .st-sale { background: #e8f5e9; color: #2e7d32; }
+  .status { font-size: 10.5px; padding: 1.5px 8px; border-radius: 9px; font-weight: 600; }
+  .s-open { background: #e8f5e9; color: #2e7d32; }
+  .s-zero { background: #eceff1; color: #546e7a; }
+  .s-closed { background: #263238; color: #fff; }
+  .row2 { display: flex; gap: 16px; margin-top: 5px; font-size: 11.5px; color: #4c5a67;
+    flex-wrap: wrap; }
+  .row2 b { color: #1f272e; }
+  .row3 { display: flex; gap: 8px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+  .doclink { font-size: 11px; color: #1470b8; background: #eef6fd; border: 1px solid #d3e8f9;
+    padding: 1.5px 8px; border-radius: 5px; text-decoration: none; }
+  .doclink:hover { background: #dceefb; }
+  .mvtag { font-size: 10.5px; color: #74808b; font-style: italic; }
+  .qtyin { color: #2e7d32; font-weight: 700; font-size: 11px; }
+  .qtyout { color: #c62828; font-weight: 700; font-size: 11px; }
+  .custody { font-size: 11px; color: #8a6d00; background: #fff8e1; border: 1px solid #f5e9bd;
+    padding: 1.5px 8px; border-radius: 5px; }
+  .warehouse { font-size: 11px; color: #37672f; background: #eef7ec; border: 1px solid #d5ecd0;
+    padding: 1.5px 8px; border-radius: 5px; }
+  .loss { font-size: 11px; color: #b26a00; background: #fff3e0; border: 1px solid #ffe0b2;
+    padding: 1.5px 8px; border-radius: 5px; }
+  .hidden { display: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px; }
+  .prog { height: 8px; border-radius: 4px; background: #eceff1; overflow: hidden;
+    margin-top: 4px; display: flex; }
+  .prog div { height: 100%; }
+  .foot { padding: 6px 20px 18px; color: #909aa4; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <div class="crumb">Lot Trace &nbsp;›&nbsp; <b>Root Lot Trace Tree</b></div>
+  <div class="badge-mock">UI MOCKUP v2 — batch-based design, not live data</div>
+</div>
+
+<div class="filterbar">
+  <div class="field"><label>Root Lot</label>
+    <div class="control">🔍&nbsp; EL/TH/0726/001 — ELSABET THROW BG <span class="caret">▾</span></div></div>
+  <div class="field"><label>Direction</label>
+    <div class="seg">
+      <button id="btnBack" class="active" onclick="setDirection('back')">⬅ Backward (from FG)</button>
+      <button id="btnFwd" onclick="setDirection('fwd')">Forward (from yarn) ➡</button>
+    </div></div>
+  <button class="btn primary">Render Tree</button>
+  <button class="btn" id="btnExpand" onclick="toggleAll()">Expand All</button>
+  <button class="btn">⬇ Export</button>
+</div>
+
+<div class="layout">
+  <div class="tree-panel">
+
+    <!-- ================= BACKWARD ================= -->
+    <div id="treeBack">
+      <div class="tree-title">
+        <h3>Backward trace — EL/TH/0726/001-FG : which material made these throws?</h3>
+        <span class="dir-tag">FG batch → stage batches → yarn receipt</span>
+      </div>
+      <ul class="tree">
+        <li>
+          <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+            <div class="lotcard selected">
+              <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-FG</span></span>
+                <span class="stage st-fg">FG · Finished Goods</span><span class="status s-closed">Dispatched</span></div>
+              <div class="row2"><span>Item: <b>ELSABET THROW BG</b></span><span>Qty: <b>17,460 Nos</b></span><span>Balance: <b>0</b></span></div>
+              <div class="row3"><span class="mvtag">movements:</span>
+                <a class="doclink" href="#">+ MFG-SE-0112 (Manufacture, WO-0034)</a>
+                <a class="doclink" href="#">− DN-IKEA-0092 (Final · lot printed)</a></div>
+            </div></div>
+          <ul>
+            <li>
+              <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+                <div class="lotcard">
+                  <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-PK</span></span>
+                    <span class="stage st-pk">PK · Packing</span><span class="status s-zero">Consumed</span></div>
+                  <div class="row2"><span>Item: <b>Packed Throw Set</b></span><span>Qty: <b>17,480 Pcs</b></span></div>
+                  <div class="row3"><a class="doclink" href="#">+ SCR-0061 (Packing s/c)</a>
+                    <a class="doclink" href="#">− MFG-SE-0112 (issued to WO)</a></div>
+                </div></div>
+              <ul>
+                <li>
+                  <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+                    <div class="lotcard">
+                      <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-FN</span></span>
+                        <span class="stage st-fn">FN · Finishing</span><span class="status s-zero">Consumed</span>
+                        <span class="loss">loss 0.9% ✓ (tol 1%)</span></div>
+                      <div class="row2"><span>Item: <b>Finished Throw Panel</b></span><span>Qty: <b>17,640 Pcs</b></span></div>
+                      <div class="row3"><a class="doclink" href="#">+ SCR-0058</a>
+                        <a class="doclink" href="#">− SE-SEND-0131 (to packer)</a></div>
+                    </div></div>
+                  <ul>
+                    <li>
+                      <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+                        <div class="lotcard">
+                          <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-ST</span></span>
+                            <span class="stage st-st">ST · Stitching</span><span class="status s-zero">Consumed</span></div>
+                          <div class="row2"><span>Item: <b>Stitched Panel</b></span><span>Qty: <b>17,650 Pcs</b></span></div>
+                          <div class="row3"><a class="doclink" href="#">+ SCR-0048</a>
+                            <a class="doclink" href="#">− SE-SEND-0127</a></div>
+                        </div></div>
+                      <ul>
+                        <li>
+                          <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+                            <div class="lotcard">
+                              <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-CT</span></span>
+                                <span class="stage st-ct">CT · Cutting</span><span class="status s-zero">Consumed</span>
+                                <span class="loss">loss 0.8% ✓ (tol 2%)</span></div>
+                              <div class="row2"><span>Item: <b>Cut Panel</b></span><span>Qty: <b>17,800 Pcs</b></span></div>
+                              <div class="row3"><a class="doclink" href="#">+ SCR-0041</a>
+                                <a class="doclink" href="#">− SE-SEND-0123</a></div>
+                            </div></div>
+                          <ul>
+                            <li>
+                              <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+                                <div class="lotcard">
+                                  <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-WV</span></span>
+                                    <span class="stage st-wv">WV · Weaving</span><span class="status s-zero">Consumed</span></div>
+                                  <div class="row2"><span>Item: <b>Woven Panel Greige</b></span><span>Qty: <b>17,800 Pcs</b></span></div>
+                                  <div class="row3"><span class="mvtag">⭐ bridge: Root Lot selected manually on PR</span>
+                                    <a class="doclink" href="#">+ PR-WEAV-0021 (PO-WEAV-0009, stage WV)</a></div>
+                                </div></div>
+                              <ul>
+                                <li>
+                                  <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+                                    <div class="lotcard">
+                                      <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-DY</span></span>
+                                        <span class="stage st-dy">DY · Dyed Yarn</span><span class="status s-zero">Fully at/for weaver</span>
+                                        <span class="loss">dye loss 4.7% ✓ (tol 5%)</span></div>
+                                      <div class="row2"><span>Item: <b>2/10s Cotton Yarn Beige</b></span><span>Qty: <b>9,530 Kg</b></span></div>
+                                      <div class="row3"><span class="custody">📍 sold to weaver Shree Looms · balance 0 Kg</span></div>
+                                      <div class="row3"><a class="doclink" href="#">+ SCR-DYE-0033 (dye s/c)</a>
+                                        <a class="doclink" href="#">− DN-YARN-0067 (Intermediate · 9,530 Kg)</a></div>
+                                    </div></div>
+                                  <ul>
+                                    <li>
+                                      <div class="node"><div class="toggler leaf">·</div>
+                                        <div class="lotcard">
+                                          <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-NT</span></span>
+                                            <span class="stage st-nt">NT · Greige Yarn</span><span class="status s-zero">Consumed</span></div>
+                                          <div class="row2"><span>Item: <b>2/10s Cotton Yarn Natural</b></span><span>Qty: <b>10,000 Kg</b></span>
+                                            <span class="mvtag">ROOT — lot born here</span></div>
+                                          <div class="row3"><span class="warehouse">🏭 Stores - Main</span>
+                                            <a class="doclink" href="#">+ PR-0140 (PO-RAW-0031 · Inv GS/2211 · Ginni Spinners)</a>
+                                            <a class="doclink" href="#">− SE-SEND-0104 (to dyer Rainbow Dyers)</a></div>
+                                        </div></div>
+                                    </li>
+                                  </ul>
+                                </li>
+                              </ul>
+                            </li>
+                          </ul>
+                        </li>
+                      </ul>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+
+    <!-- ================= FORWARD ================= -->
+    <div id="treeFwd" class="hidden">
+      <div class="tree-title">
+        <h3>Forward trace — EL/TH/0726/001-NT : where did this yarn go?</h3>
+        <span class="dir-tag">yarn receipt → stage batches → IKEA dispatch</span>
+      </div>
+      <ul class="tree">
+        <li>
+          <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+            <div class="lotcard selected">
+              <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-NT</span></span>
+                <span class="stage st-nt">NT · Greige Yarn</span></div>
+              <div class="row2"><span><b>10,000 Kg</b> · Ginni Spinners · Inv GS/2211</span></div>
+              <div class="row3"><a class="doclink" href="#">+ PR-0140</a></div>
+            </div></div>
+          <ul>
+            <li>
+              <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+                <div class="lotcard">
+                  <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-DY</span></span>
+                    <span class="stage st-dy">DY · Dyed Yarn</span><span class="loss">loss 4.7% ✓</span></div>
+                  <div class="row2"><span><b>9,530 Kg</b> · Rainbow Dyers</span></div>
+                  <div class="row3"><a class="doclink" href="#">+ SCR-DYE-0033</a>
+                    <a class="doclink" href="#">− DN-YARN-0067 → Shree Looms</a></div>
+                </div></div>
+              <ul>
+                <li>
+                  <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+                    <div class="lotcard">
+                      <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-WV</span></span>
+                        <span class="stage st-wv">WV · Weaving</span></div>
+                      <div class="row2"><span><b>17,800 Pcs</b> woven panels</span></div>
+                      <div class="row3"><a class="doclink" href="#">+ PR-WEAV-0021 ⭐</a></div>
+                    </div></div>
+                  <ul>
+                    <li>
+                      <div class="node"><div class="toggler" onclick="tg(this)">+</div>
+                        <div class="lotcard">
+                          <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-CT → -PK</span></span>
+                            <span class="stage st-ct">Sub-processes</span></div>
+                          <div class="row2"><span>CT 17,800 → ST 17,650 → FN 17,640 → PK 17,480</span></div>
+                          <div class="row3"><span class="mvtag">4 subcontract cycles (click + to expand)</span></div>
+                        </div></div>
+                      <ul class="hidden">
+                        <li><div class="node"><div class="toggler leaf">·</div>
+                          <div class="lotcard mv"><div class="row1"><span class="qtyin">+17,800</span>
+                            <span class="mvtag">SCR-0041 · Cutting</span><a class="doclink" href="#">open</a></div></div></div></li>
+                        <li><div class="node"><div class="toggler leaf">·</div>
+                          <div class="lotcard mv"><div class="row1"><span class="qtyin">+17,650</span>
+                            <span class="mvtag">SCR-0048 · Stitching</span><a class="doclink" href="#">open</a></div></div></div></li>
+                        <li><div class="node"><div class="toggler leaf">·</div>
+                          <div class="lotcard mv"><div class="row1"><span class="qtyin">+17,640</span>
+                            <span class="mvtag">SCR-0058 · Finishing</span><a class="doclink" href="#">open</a></div></div></div></li>
+                        <li><div class="node"><div class="toggler leaf">·</div>
+                          <div class="lotcard mv"><div class="row1"><span class="qtyin">+17,480</span>
+                            <span class="mvtag">SCR-0061 · Packing</span><a class="doclink" href="#">open</a></div></div></div></li>
+                      </ul>
+                    </li>
+                    <li>
+                      <div class="node"><div class="toggler" onclick="tg(this)">−</div>
+                        <div class="lotcard">
+                          <div class="row1"><span class="lotcode"><span class="rootpart">EL/TH/0726/001</span><span class="suffix">-FG</span></span>
+                            <span class="stage st-fg">FG · Finished Goods</span></div>
+                          <div class="row2"><span><b>17,460 Nos</b> ELSABET THROW BG</span></div>
+                          <div class="row3"><a class="doclink" href="#">+ MFG-SE-0112 (WO-0034)</a></div>
+                        </div></div>
+                      <ul>
+                        <li>
+                          <div class="node"><div class="toggler leaf">·</div>
+                            <div class="lotcard">
+                              <div class="row1"><span class="lotcode">FINAL DISPATCH</span>
+                                <span class="stage st-sale">Final Sale</span><span class="status s-closed">Chain Closed</span></div>
+                              <div class="row2"><span>Customer: <b>IKEA</b></span><span><b>17,460 Nos</b></span>
+                                <span>Lot printed: <b class="rootpart">EL/TH/0726/001</b></span></div>
+                              <div class="row3"><a class="doclink" href="#">DN-IKEA-0092</a>
+                                <a class="doclink" href="#">SI-IKEA-0101</a></div>
+                            </div></div>
+                        </li>
+                      </ul>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- side panel -->
+  <div class="side-panel">
+    <div class="card">
+      <h4>Root Lot</h4>
+      <div class="kv"><span class="k">Lot</span><span class="v rootpart">EL/TH/0726/001</span></div>
+      <div class="kv"><span class="k">Product</span><span class="v">ELSABET THROW BG</span></div>
+      <div class="kv"><span class="k">Sales Order</span><span class="v">SO-IKEA-2026-018</span></div>
+      <div class="kv"><span class="k">Yarn Supplier</span><span class="v">Ginni Spinners</span></div>
+      <div class="kv"><span class="k">Status</span><span class="v" style="color:#2e7d32">Completed</span></div>
+      <div class="kv"><span class="k">Stage batches</span><span class="v">9</span></div>
+      <div class="kv"><span class="k">Open exceptions</span><span class="v">0</span></div>
+    </div>
+    <div class="card">
+      <h4>Stage progress (NT → FG)</h4>
+      <div class="kv"><span class="k">NT yarn in</span><span class="v">10,000 Kg</span></div>
+      <div class="kv"><span class="k">DY dyed (−4.7%)</span><span class="v">9,530 Kg</span></div>
+      <div class="kv"><span class="k">WV panels</span><span class="v">17,800 Pcs</span></div>
+      <div class="kv"><span class="k">CT→PK</span><span class="v">17,480 Pcs</span></div>
+      <div class="kv"><span class="k">FG throws</span><span class="v">17,460 Nos</span></div>
+      <div class="kv"><span class="k">Dispatched</span><span class="v" style="color:#2e7d32">17,460 Nos</span></div>
+      <div class="prog">
+        <div style="width:100%;background:#2e7d32"></div>
+      </div>
+      <div style="font-size:10.5px;color:#74808b;margin-top:3px">100% of FG dispatched</div>
+    </div>
+    <div class="card">
+      <h4>Legend — stages</h4>
+      <div class="legend">
+        <span class="stage st-nt">NT</span><span class="stage st-dy">DY</span>
+        <span class="stage st-wv">WV</span><span class="stage st-ct">CT/ST/EM/FN/PK</span>
+        <span class="stage st-fg">FG</span><span class="stage st-sale">Sale</span>
+      </div>
+      <h4 style="margin-top:12px">Markers</h4>
+      <div class="legend">
+        <span class="qtyin">+ receipt</span><span class="qtyout">− issue/dispatch</span>
+        <span class="custody">📍 at weaver</span><span class="loss">stage loss vs tolerance</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="foot">
+  Mockup of the v2 trace tree. Data model: nodes are the <b>stage batches of one Root Lot</b>
+  (Batch.root_lot); movements come from Stock Ledger Entries per batch — no custom ledger.
+  Every tag opens the real Batch / voucher in the live page.
+</div>
+
+<script>
+  function tg(el) {
+    const li = el.closest("li");
+    const ul = li.querySelector(":scope > ul");
+    if (!ul) return;
+    const hidden = ul.classList.toggle("hidden");
+    el.textContent = hidden ? "+" : "−";
+  }
+  let allExpanded = false;
+  function toggleAll() {
+    allExpanded = !allExpanded;
+    const visibleTree = document.getElementById("treeBack").classList.contains("hidden")
+      ? "#treeFwd" : "#treeBack";
+    document.querySelectorAll(visibleTree + " ul.tree ul").forEach(ul =>
+      ul.classList.toggle("hidden", !allExpanded));
+    document.querySelectorAll(visibleTree + " .toggler:not(.leaf)").forEach(t =>
+      t.textContent = allExpanded ? "−" : "+");
+    document.getElementById("btnExpand").textContent =
+      allExpanded ? "Collapse All" : "Expand All";
+  }
+  function setDirection(dir) {
+    document.getElementById("treeBack").classList.toggle("hidden", dir !== "back");
+    document.getElementById("treeFwd").classList.toggle("hidden", dir !== "fwd");
+    document.getElementById("btnBack").classList.toggle("active", dir === "back");
+    document.getElementById("btnFwd").classList.toggle("active", dir === "fwd");
+    allExpanded = false;
+    document.getElementById("btnExpand").textContent = "Expand All";
+  }
+</script>
+</body>
+</html>
