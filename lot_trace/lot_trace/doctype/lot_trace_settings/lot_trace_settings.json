@@ -1,0 +1,33 @@
+{
+ "actions": [],
+ "creation": "2026-07-11 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "issingle": 1,
+ "field_order": ["mixing_policy", "column_break_1", "repair_issue_doctype",
+  "repair_receipt_doctype"],
+ "fields": [
+  {"fieldname": "mixing_policy", "fieldtype": "Select",
+   "label": "Lot Mixing Policy (per transaction)", "default": "Block",
+   "options": "Block\nWarn",
+   "description": "Block: one root lot per stock document (Lot Manager can override with 'Allow Mixed Lots'). Warn: allowed but logged as exception."},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "repair_issue_doctype", "fieldtype": "Data",
+   "label": "Repair Issue DocType Name", "default": "Repair Issue"},
+  {"fieldname": "repair_receipt_doctype", "fieldtype": "Data",
+   "label": "Repair Receipt DocType Name", "default": "Repair Receipt"}
+ ],
+ "links": [],
+ "modified": "2026-07-11 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Lot Trace",
+ "name": "Lot Trace Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1},
+  {"role": "Lot Manager", "read": 1, "write": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

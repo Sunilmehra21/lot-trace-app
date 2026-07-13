@@ -1,0 +1,4 @@
+[
+ {"doctype": "Role", "name": "Lot Manager", "role_name": "Lot Manager", "desk_access": 1},
+ {"doctype": "Role", "name": "Lot User", "role_name": "Lot User", "desk_access": 1}
+]
