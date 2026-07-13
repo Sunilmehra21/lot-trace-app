@@ -219,7 +219,7 @@ def yarn_per_unit_from_bom(weaving_item, dyed_yarn_item=None):
  
     yarn_rows = frappe.db.sql(
         """
-        SELECT bi.item_code, bi.qty_per_unit, bi.uom
+        SELECT bi.item_code, bi.qty, bi.uom  # ✅ CORRECT
         FROM `tabBOM Item` bi
         WHERE """ + where_clause + """
         LIMIT 1
@@ -229,7 +229,7 @@ def yarn_per_unit_from_bom(weaving_item, dyed_yarn_item=None):
         return 0
  
     yarn_row = yarn_rows[0]
-    qty = flt(yarn_row.qty_per_unit)
+    qty = flt(yarn_row.qty)
  
     # Convert to kg if needed
     # (Assuming yarn is always in kg; if other UOMs, add conversion logic)
