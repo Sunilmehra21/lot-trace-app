@@ -22,14 +22,17 @@ def execute(filters=None):
     data = []
     for lot in lots:
         stage_qty = get_stage_balances(lot.name)
+        dy_stage = stage_qty.get("DY", {})
+        dy_in = dy_stage.get("in_qty", 0)  # what was sent to dyer
+        dy_out = dy_stage.get("out_qty", 0)  # what came back
+        
         data.append({
             "root_lot": lot.name,
             "product": lot.product,
             "supplier": lot.supplier,
             "received_qty": lot.received_qty,
-            "dyed_qty": stage_qty.get("DY", {}).get("in_qty", 0),
-            "dye_loss_pct": loss_pct(lot.received_qty,
-                                     stage_qty.get("DY", {}).get("in_qty", 0)),
+            "dyed_qty": dy_out,
+            "dye_loss_pct": loss_pct_for_stage(dy_in, dy_out),
             "weaved_qty": stage_qty.get("WV", {}).get("in_qty", 0),
             "in_process_qty": sum(
                 v.get("balance", 0) for k, v in stage_qty.items() if k != "FG"),
@@ -71,20 +74,27 @@ def execute(filters=None):
 
 
 def get_stage_balances(root_lot):
+    """Get input/output/balance per stage using Stock Ledger Entries."""
     rows = frappe.db.sql(
         """
         SELECT b.process_stage AS stage,
                SUM(CASE WHEN sle.actual_qty > 0 THEN sle.actual_qty ELSE 0 END) AS in_qty,
+               SUM(CASE WHEN sle.actual_qty < 0 THEN ABS(sle.actual_qty) ELSE 0 END) AS out_qty,
                SUM(sle.actual_qty) AS balance
         FROM `tabStock Ledger Entry` sle
         JOIN `tabBatch` b ON b.name = sle.batch_no
         WHERE b.root_lot = %s AND sle.is_cancelled = 0
         GROUP BY b.process_stage
         """, root_lot, as_dict=True)
-    return {r.stage: {"in_qty": flt(r.in_qty), "balance": flt(r.balance)} for r in rows}
+    return {r.stage: {
+        "in_qty": flt(r.in_qty),
+        "out_qty": flt(r.out_qty),
+        "balance": flt(r.balance)
+    } for r in rows}
 
-
-def loss_pct(in_qty, out_qty):
+def loss_pct_for_stage(in_qty, out_qty):
+    """Loss % = (sent - received) / sent * 100."""
     if not flt(in_qty) or not flt(out_qty):
         return 0
+    # loss % based on what was sent, not total purchase
     return round((flt(in_qty) - flt(out_qty)) / flt(in_qty) * 100, 2)
