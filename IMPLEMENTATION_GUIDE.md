@@ -537,4 +537,3 @@ A: Not supported by design (one lot = one product path). Use separate Lot Naming
 
 **Q: How do I restore archived data?**  
 A: Set is_archived=0 on the Root Lot record. Stock Ledger Entries will automatically un-archive (soft delete is reversible).
-
