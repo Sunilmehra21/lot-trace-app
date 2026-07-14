@@ -14,14 +14,39 @@ def get_settings():
 # ----------------------------------------------------------------------
 # Lot numbering:  {prefix}/{MMYY}/{###}   e.g. EL/TH/0726/001
 # ----------------------------------------------------------------------
-def find_naming_rule(yarn_item=None, product=None):
+def find_naming_rule(yarn_item=None, product=None, customer=None):
+    """Find the applicable Lot Naming Rule.
+
+    Phase 2 selective traceability:
+    - Item.lot_trace_enabled unchecked -> item is never traced
+    - Customer.lot_trace_enabled (when a customer is resolvable) -> only
+      opted-in customers are traced. If no customer context, rule applies.
+    """
+    # item-level opt-out
+    if yarn_item:
+        item_enabled = frappe.db.get_value("Item", yarn_item, "lot_trace_enabled")
+        if item_enabled is not None and not int(item_enabled or 0):
+            return None
+
     filters = {"active": 1}
     if product:
         filters["product"] = product
     elif yarn_item:
         filters["yarn_item"] = yarn_item
     name = frappe.db.get_value("Lot Naming Rule", filters)
-    return frappe.get_cached_doc("Lot Naming Rule", name) if name else None
+    if not name:
+        return None
+    rule = frappe.get_cached_doc("Lot Naming Rule", name)
+
+    # customer-level opt-in (checked only when a customer is known)
+    rule_customer = customer or rule.get("customer")
+    if rule_customer:
+        cust_enabled = frappe.db.get_value(
+            "Customer", rule_customer, "lot_trace_enabled")
+        if cust_enabled is not None and not int(cust_enabled or 0):
+            return None
+
+    return rule
 
 
 def make_lot_code(rule, posting_date):
@@ -104,9 +129,20 @@ def collect_root_lots(doc, batch_field="batch_no", tables=("items",)):
 
 
 def enforce_single_lot(doc, lots):
+    """Three-mode mixing policy (Phase 2).
+
+    - Block: reject mixed lots; Lot Manager may tick 'Allow Mixed Lots'
+      (override is logged as an exception).
+    - Warn: allowed, always logged as an exception.
+    - Allow: allowed silently, nothing logged.
+    """
     if len(lots) <= 1:
         return
     policy = get_settings().mixing_policy or "Block"
+
+    if policy == "Allow":
+        return  # no restriction, no logging
+
     allow_override = bool(doc.get("allow_mixed_lots"))
     if policy == "Block" and not allow_override:
         frappe.throw(_(
