@@ -2,6 +2,10 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+# Stages carried in yarn (kg). Everything from weaving onward is in pcs (Nos)
+# and must NOT be summed into the yarn In-Process figure.
+YARN_STAGES = {"NT", "DY"}
+
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
@@ -25,7 +29,7 @@ def execute(filters=None):
         dy_stage = stage_qty.get("DY", {})
         dy_in = dy_stage.get("in_qty", 0)  # what was sent to dyer
         dy_out = dy_stage.get("out_qty", 0)  # what came back
-        
+
         data.append({
             "root_lot": lot.name,
             "product": lot.product,
@@ -34,8 +38,12 @@ def execute(filters=None):
             "dyed_qty": dy_out,
             "dye_loss_pct": loss_pct_for_stage(dy_in, dy_out),
             "weaved_qty": stage_qty.get("WV", {}).get("in_qty", 0),
+            # In-Process = yarn (kg) still in the pipeline, yarn stages only.
+            # Weaved pcs stages are a different UOM (Nos) and are excluded.
             "in_process_qty": sum(
-                v.get("balance", 0) for k, v in stage_qty.items() if k != "FG"),
+                v.get("balance", 0)
+                for k, v in stage_qty.items()
+                if k in YARN_STAGES),
             "fg_qty": lot.fg_qty,
             "dispatched_qty": lot.dispatched_qty,
             "current_stage": lot.current_stage,
@@ -59,8 +67,8 @@ def execute(filters=None):
          "width": 90},
         {"label": _("Weaved Pcs"), "fieldname": "weaved_qty", "fieldtype": "Float",
          "width": 95},
-        {"label": _("In-Process"), "fieldname": "in_process_qty", "fieldtype": "Float",
-         "width": 95},
+        {"label": _("In-Process (Kg)"), "fieldname": "in_process_qty",
+         "fieldtype": "Float", "width": 110},
         {"label": _("FG Qty"), "fieldname": "fg_qty", "fieldtype": "Float", "width": 85},
         {"label": _("Dispatched"), "fieldname": "dispatched_qty", "fieldtype": "Float",
          "width": 95},
@@ -91,6 +99,7 @@ def get_stage_balances(root_lot):
         "out_qty": flt(r.out_qty),
         "balance": flt(r.balance)
     } for r in rows}
+
 
 def loss_pct_for_stage(in_qty, out_qty):
     """Loss % = (sent - received) / sent * 100."""
