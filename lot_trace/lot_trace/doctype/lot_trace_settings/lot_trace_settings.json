@@ -9,8 +9,8 @@
  "fields": [
   {"fieldname": "mixing_policy", "fieldtype": "Select",
    "label": "Lot Mixing Policy (per transaction)", "default": "Block",
-   "options": "Block\nWarn",
-   "description": "Block: one root lot per stock document (Lot Manager can override with 'Allow Mixed Lots'). Warn: allowed but logged as exception."},
+   "options": "Block\nWarn\nAllow",
+   "description": "Block: one root lot per stock document (Lot Manager can override with 'Allow Mixed Lots', logged). Warn: allowed but always logged as exception. Allow: no restriction, nothing logged."},
   {"fieldname": "column_break_1", "fieldtype": "Column Break"},
   {"fieldname": "repair_issue_doctype", "fieldtype": "Data",
    "label": "Repair Issue DocType Name", "default": "Repair Issue"},
@@ -18,7 +18,7 @@
    "label": "Repair Receipt DocType Name", "default": "Repair Receipt"}
  ],
  "links": [],
- "modified": "2026-07-11 00:00:00",
+ "modified": "2026-07-14 00:00:00",
  "modified_by": "Administrator",
  "module": "Lot Trace",
  "name": "Lot Trace Settings",
