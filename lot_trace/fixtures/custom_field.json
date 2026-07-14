@@ -61,5 +61,21 @@
  {"doctype": "Custom Field", "name": "Sales Invoice-allow_mixed_lots",
   "dt": "Sales Invoice", "fieldname": "allow_mixed_lots", "fieldtype": "Check",
   "label": "Allow Mixed Lots (Lot Manager)", "insert_after": "dispatch_type",
+  "module": "Lot Trace"},
+
+ {"doctype": "Custom Field", "name": "Item-lot_trace_enabled", "dt": "Item",
+  "fieldname": "lot_trace_enabled", "fieldtype": "Check",
+  "label": "Enable Lot Traceability", "insert_after": "has_batch_no", "default": "1",
+  "description": "If unchecked, this item is never traced even when a Lot Naming Rule exists",
+  "module": "Lot Trace"},
+ {"doctype": "Custom Field", "name": "Customer-lot_trace_enabled", "dt": "Customer",
+  "fieldname": "lot_trace_enabled", "fieldtype": "Check",
+  "label": "Enable Lot Traceability", "insert_after": "customer_group", "default": "1",
+  "description": "If unchecked, lots are not created for orders of this customer",
+  "module": "Lot Trace"},
+ {"doctype": "Custom Field", "name": "Customer-represents_supplier", "dt": "Customer",
+  "fieldname": "represents_supplier", "fieldtype": "Link", "options": "Supplier",
+  "label": "Represents Supplier", "insert_after": "lot_trace_enabled",
+  "description": "Link the weaver's Supplier record when this customer is the same party (buys dyed yarn as Customer, sells back weaved pcs as Supplier)",
   "module": "Lot Trace"}
 ]
