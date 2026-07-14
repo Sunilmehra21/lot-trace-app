@@ -69,115 +69,69 @@ def at_weaver_balance(weaver=None, root_lot=None):
     """
     Dyed yarn lying at weavers, per lot per weaver.
  
-    Calculation:
     balance_at_weaver = dyed_yarn_sold - consumed_equiv
  
     Where:
-    - dyed_yarn_sold = qty of dyed yarn sent to weaver (via DN/SI with weaver as customer)
-    - weaved_pcs_received = total weaving pcs received from weaver (quantity)
-    - consumed_equiv = weaving pcs received from weaver × kg_per_pc (from BOM)
- 
-    Args:
-        weaver (str, optional): Filter by specific weaver (Customer name)
-        root_lot (str, optional): Filter by specific root lot
- 
-    Returns:
-        list: Rows with:
-            - root_lot
-            - weaver
-            - dyed_yarn_sold_kg
-            - weaved_pcs_received (NEW)
-            - consumed_equiv_kg
-            - balance_at_weaver_kg
+    - dyed_yarn_sold = qty of dyed yarn sent to weaver (via DN/SI)
+    - weaved_pcs_received = total pcs received from weaver (NEW FIELD)
+    - consumed_equiv = weaving pcs × kg_per_pc from BOM
     """
     frappe.has_permission("Root Lot", "read", throw=True)
  
-    # Step 1: Get all weavers from PurchaseReceipts (weaving pcs received)
-    # Assumption: Weaver Supplier name = Weaver Customer name
-    weaver_suppliers = frappe.db.sql(
+    # sales of dyed yarn (DY batches) per lot per weaver-customer
+    sold = frappe.db.sql(
         """
-        SELECT DISTINCT pr.supplier AS weaver_supplier
-        FROM `tabPurchase Receipt` pr
-        JOIN `tabPurchase Receipt Item` pri ON pr.name = pri.parent
-        WHERE pri.root_lot IS NOT NULL
-          AND pr.docstatus = 1
-          AND pr.is_return = 0
-        """, as_dict=True)
+        SELECT b.root_lot, COALESCE(dn.customer, si.customer) AS weaver,
+               SUM(ABS(sle.actual_qty)) AS sold_qty
+        FROM `tabStock Ledger Entry` sle
+        JOIN `tabBatch` b ON b.name = sle.batch_no
+        LEFT JOIN `tabDelivery Note Item` dni ON sle.voucher_type = 'Delivery Note' AND sle.voucher_no = dni.parent AND b.name = dni.batch_no
+        LEFT JOIN `tabDelivery Note` dn ON dni.parent = dn.name
+        LEFT JOIN `tabSales Invoice Item` sii ON sle.voucher_type = 'Sales Invoice' AND sle.voucher_no = sii.parent AND b.name = sii.batch_no
+        LEFT JOIN `tabSales Invoice` si ON sii.parent = si.name
+        WHERE b.process_stage = 'DY' AND sle.is_cancelled = 0
+          AND sle.actual_qty < 0
+          AND sle.voucher_type IN ('Delivery Note', 'Sales Invoice')
+        """ + ("AND b.root_lot = %(root_lot)s" if root_lot else "") + """
+        GROUP BY b.root_lot, COALESCE(dn.customer, si.customer)
+        """,
+        {"root_lot": root_lot} if root_lot else {}, as_dict=True)
  
     result = []
- 
-    for w in weaver_suppliers:
-        weaver_supplier = w.weaver_supplier
-        # Assume the weaver's customer name is the same as their supplier name
-        weaver_customer = weaver_supplier
- 
-        # Apply filter if user specified a weaver
-        if weaver and weaver != weaver_customer:
+    for s in sold:
+        weaver_name = s.weaver
+        if weaver and weaver != weaver_name:
             continue
  
-        # Step 2: Get all dyed yarn sales to this weaver
-        sold_data = frappe.db.sql(
+        # Convert weaver-as-customer to weaver-as-supplier
+        # (assumes same name, or use represents_supplier if custom field exists)
+        weaver_supplier = weaver_name
+ 
+        # consumed: weaved pcs received from this weaver for this lot
+        pr_rows = frappe.db.sql(
             """
-            SELECT b.root_lot,
-                   SUM(ABS(sle.actual_qty)) AS sold_qty
-            FROM `tabStock Ledger Entry` sle
-            JOIN `tabBatch` b ON b.name = sle.batch_no
-            LEFT JOIN `tabDelivery Note` dn ON (
-                sle.voucher_type = 'Delivery Note'
-                AND sle.voucher_no = dn.name
-            )
-            LEFT JOIN `tabSales Invoice` si ON (
-                sle.voucher_type = 'Sales Invoice'
-                AND sle.voucher_no = si.name
-            )
-            WHERE b.process_stage = 'DY'
-              AND sle.is_cancelled = 0
-              AND sle.actual_qty < 0
-              AND sle.voucher_type IN ('Delivery Note', 'Sales Invoice')
-              AND (dn.customer = %s OR si.customer = %s)
-            """ + ("AND b.root_lot = %s" if root_lot else "") + """
-            GROUP BY b.root_lot
-            """,
-            (weaver_customer, weaver_customer, root_lot) if root_lot
-            else (weaver_customer, weaver_customer),
-            as_dict=True)
+            SELECT pri.item_code, SUM(pri.stock_qty) AS qty
+            FROM `tabPurchase Receipt Item` pri
+            JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+            WHERE pri.root_lot = %s AND pr.supplier = %s
+              AND pr.docstatus = 1 AND pr.is_return = 0
+            GROUP BY pri.item_code
+            """, (s.root_lot, weaver_supplier), as_dict=True)
  
-        # Step 3: For each lot-weaver combo, calculate balance
-        for sale in sold_data:
-            lot_code = sale.root_lot
-            sold_kg = flt(sale.sold_qty)
+        # NEW: Calculate total pcs received
+        total_pcs_received = sum(flt(r.qty) for r in pr_rows)
  
-            # Get weaving pcs received from this weaver for this lot
-            pr_items = frappe.db.sql(
-                """
-                SELECT pri.item_code, SUM(pri.stock_qty) AS qty
-                FROM `tabPurchase Receipt Item` pri
-                JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
-                WHERE pri.root_lot = %s
-                  AND pr.supplier = %s
-                  AND pr.docstatus = 1
-                  AND pr.is_return = 0
-                GROUP BY pri.item_code
-                """, (lot_code, weaver_supplier), as_dict=True)
+        consumed = sum(
+            flt(r.qty) * yarn_per_unit_from_bom(r.item_code) for r in pr_rows)
  
-            # Convert pcs to kg equivalent
-            consumed_kg = sum(
-                flt(item.qty) * yarn_per_unit_from_bom(item.item_code)
-                for item in pr_items)
- 
-            # NEW: Get total weaved pcs received
-            total_pcs_received = sum(flt(item.qty) for item in pr_items)
- 
-            balance_kg = sold_kg - consumed_kg
- 
-            result.append({
-                "root_lot": lot_code,
-                "weaver": weaver_customer,
-                "dyed_yarn_sold_kg": round(sold_kg, 2),
-                "weaved_pcs_received": round(total_pcs_received, 2),  # NEW FIELD
-                "consumed_equiv_kg": round(consumed_kg, 2),
-                "balance_at_weaver_kg": round(balance_kg, 2),
-            })
+        result.append({
+            "root_lot": s.root_lot,
+            "weaver": weaver_name,
+            "dyed_yarn_sold_kg": round(flt(s.sold_qty), 2),
+            "weaved_pcs_received": round(total_pcs_received, 2),  # NEW FIELD
+            "consumed_equiv_kg": round(consumed, 2),
+            "balance_at_weaver_kg": round(flt(s.sold_qty) - consumed, 2),
+        })
  
     return result
  
@@ -191,11 +145,10 @@ def yarn_per_unit_from_bom(weaving_item, dyed_yarn_item=None):
  
     Args:
         weaving_item (str): Item code of the woven product (e.g., "Woven Panel Greige")
-        dyed_yarn_item (str, optional): Item code of dyed yarn (e.g., "2/10s Cotton Yarn Beige").
-                                        If None, searches for any dyed yarn input.
+        dyed_yarn_item (str, optional): Item code of dyed yarn
  
     Returns:
-        float: kg of yarn per unit of weaving item. Returns 0 if no BOM found or no yarn input.
+        float: kg of yarn per unit of weaving item. Returns 0 if no BOM found.
     """
     if not weaving_item:
         return 0
@@ -203,7 +156,7 @@ def yarn_per_unit_from_bom(weaving_item, dyed_yarn_item=None):
     # Find the BOM for this weaving item
     bom = frappe.db.get_value(
         "BOM",
-        {"item": weaving_item, "docstatus": 1},  # docstatus=1 means submitted
+        {"item": weaving_item, "docstatus": 1},
         ["name"])
  
     if not bom:
@@ -219,7 +172,7 @@ def yarn_per_unit_from_bom(weaving_item, dyed_yarn_item=None):
  
     yarn_rows = frappe.db.sql(
         """
-        SELECT bi.item_code, bi.qty, bi.uom  # ✅ CORRECT
+        SELECT bi.item_code, bi.qty, bi.uom
         FROM `tabBOM Item` bi
         WHERE """ + where_clause + """
         LIMIT 1
@@ -232,9 +185,8 @@ def yarn_per_unit_from_bom(weaving_item, dyed_yarn_item=None):
     qty = flt(yarn_row.qty)
  
     # Convert to kg if needed
-    # (Assuming yarn is always in kg; if other UOMs, add conversion logic)
     if yarn_row.uom != "kg":
-        # TODO: add UOM conversion if BOM uses different units
+        # Add UOM conversion logic if needed
         pass
  
     return qty
