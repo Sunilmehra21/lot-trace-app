@@ -11,7 +11,7 @@ def execute(filters=None):
     data = get_lot_trace(filters.root_lot)
     columns = [
         {"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date", "width": 95},
-        {"label": _("Stage"), "fieldname": "stage", "fieldtype": "Link",
+        {"label": _("Stage"), "fieldname": "process_stage", "fieldtype": "Data",
          "options": "Lot Process Stage", "width": 70},
         {"label": _("Batch"), "fieldname": "batch_no", "fieldtype": "Link",
          "options": "Batch", "width": 170},
