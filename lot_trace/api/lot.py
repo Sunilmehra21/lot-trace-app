@@ -1,6 +1,5 @@
 # Whitelisted lot APIs: full trace, product re-assignment (audited),
-# at-weaver balance (BOM-based conversion, as confirmed).
-
+# at-weaver balance (BOM-based yarn conversion).
 import frappe
 from frappe import _
 from frappe.utils import flt
@@ -31,49 +30,65 @@ def get_lot_trace(root_lot):
 	""".format(','.join(['%s'] * len(batch_names))), batch_names, as_dict=True)
 	return sle_entries
 
+
 @frappe.whitelist()
 def reassign_lot(root_lot, new_product, reason):
-    """Divert a lot to the other product - Lot Manager only, fully audited."""
-    if "Lot Manager" not in frappe.get_roles() and "System Manager" not in frappe.get_roles():
-        frappe.throw(_("Only Lot Manager can re-assign a lot."), frappe.PermissionError)
-    if not reason:
-        frappe.throw(_("A reason is mandatory for lot re-assignment."))
-
-    lot = frappe.get_doc("Root Lot", root_lot)
-    old_product = lot.product
-    lot.product = new_product
-    lot.flags.ignore_permissions = True
-    lot.save()  # track_changes keeps the version history
-
-    lot.add_comment("Comment", _(
-        "Lot re-assigned from product {0} to {1} by {2}. Reason: {3}"
-    ).format(old_product, new_product, frappe.session.user, reason))
-
-    from lot_trace.events.common import log_exception
-    log_exception("Manual Override", "Info", root_lot=root_lot,
-                  message=_("Re-assigned {0} -> {1}: {2}")
-                  .format(old_product, new_product, reason))
-    return lot.name
+	"""Divert a lot to the other product - Lot Manager only, fully audited."""
+	if "Lot Manager" not in frappe.get_roles() and "System Manager" not in frappe.get_roles():
+		frappe.throw(_("Only Lot Manager can re-assign a lot."), frappe.PermissionError)
+	if not reason:
+		frappe.throw(_("A reason is mandatory for lot re-assignment."))
+	lot = frappe.get_doc("Root Lot", root_lot)
+	old_product = lot.product
+	lot.product = new_product
+	lot.flags.ignore_permissions = True
+	lot.save()  # track_changes keeps the version history
+	lot.add_comment("Comment", _(
+		"Lot re-assigned from product {0} to {1} by {2}. Reason: {3}"
+	).format(old_product, new_product, frappe.session.user, reason))
+	from lot_trace.events.common import log_exception
+	log_exception("Manual Override", "Info", root_lot=root_lot,
+	              message=_("Re-assigned {0} -> {1}: {2}")
+	              .format(old_product, new_product, reason))
+	return lot.name
 
 
 def yarn_per_unit_from_bom(weaved_item, dyed_yarn_item=None):
-    """kg of dyed yarn per 1 unit of weaved pcs, from the item's default BOM."""
-    bom = frappe.db.get_value(
-        "BOM", {"item": weaved_item, "is_active": 1, "is_default": 1}, "name")
-    if not bom:
-        return 0
-    filters = {"parent": bom}
-    if dyed_yarn_item:
-        filters["item_code"] = dyed_yarn_item
-    rows = frappe.get_all("BOM Item", filters=filters,
-                          fields=["item_code", "stock_qty"])
-    bom_qty = flt(frappe.db.get_value("BOM", bom, "quantity")) or 1
-    return sum(flt(r.stock_qty) for r in rows) / bom_qty
+	"""kg of dyed yarn consumed per 1 unit of weaved pcs, from the item's BOM.
+
+	The BOM is entered per its own `quantity` (e.g. a BOM that makes 100 pcs
+	lists total yarn for 100). We divide by BOM quantity to get the per-piece
+	yarn, so this works whether the BOM is built for 1 pc or many.
+	"""
+	if not weaved_item:
+		return 0
+	# Prefer the default active BOM, fall back to any active / submitted BOM
+	bom = (frappe.db.get_value("BOM", {"item": weaved_item, "is_active": 1, "is_default": 1}, "name")
+	       or frappe.db.get_value("BOM", {"item": weaved_item, "is_active": 1}, "name")
+	       or frappe.db.get_value("BOM", {"item": weaved_item, "docstatus": 1}, "name"))
+	if not bom:
+		return 0
+	filters = {"parent": bom}
+	if dyed_yarn_item:
+		filters["item_code"] = dyed_yarn_item
+	rows = frappe.get_all("BOM Item", filters=filters,
+	                      fields=["item_code", "stock_qty"])
+	if not rows:
+		return 0
+	bom_qty = flt(frappe.db.get_value("BOM", bom, "quantity")) or 1
+	return sum(flt(r.stock_qty) for r in rows) / bom_qty
 
 
 @frappe.whitelist()
 def at_weaver_balance(weaver=None, root_lot=None):
-	"""Dyed yarn lying at weavers, per lot per weaver. balance = dyed_sold - consumed."""
+	"""Dyed yarn lying at each weaver, per lot per weaver.
+
+	Columns (all yarn/kg based, except the pcs count):
+	  dyed_yarn_sold_kg   - dyed yarn issued to the weaver (DN/SI out)
+	  weaved_pcs_received - count of weaved pcs received back (display only)
+	  consumed_equiv_kg   - yarn consumed per BOM = pcs * kg_per_pc
+	  balance_at_weaver_kg- dyed_yarn_sold_kg - consumed_equiv_kg
+	"""
 	frappe.has_permission("Root Lot", "read", throw=True)
 	sold = frappe.db.sql("""
 		SELECT b.root_lot, COALESCE(dn.customer, si.customer) AS weaver,
@@ -99,6 +114,7 @@ def at_weaver_balance(weaver=None, root_lot=None):
 		weaver_name = s.weaver
 		if weaver and weaver != weaver_name:
 			continue
+		# weaver as supplier (weaved pcs come back on a Purchase Receipt)
 		weaver_supplier = weaver_name
 		pr_rows = frappe.db.sql("""
 			SELECT pri.item_code, SUM(pri.stock_qty) AS qty
@@ -108,7 +124,9 @@ def at_weaver_balance(weaver=None, root_lot=None):
 			  AND pr.docstatus = 1 AND pr.is_return = 0
 			GROUP BY pri.item_code
 		""", (s.root_lot, weaver_supplier), as_dict=True)
+		# count of weaved pcs (display only - NOT used for yarn math)
 		total_pcs_received = sum(flt(r.qty) for r in pr_rows)
+		# yarn consumed per BOM = pcs * kg_per_pc
 		consumed = sum(
 			flt(r.qty) * yarn_per_unit_from_bom(r.item_code)
 			for r in pr_rows)
@@ -122,53 +140,3 @@ def at_weaver_balance(weaver=None, root_lot=None):
 			"balance_at_weaver_kg": round(balance, 2),
 		})
 	return result
-
-
-def yarn_per_unit_from_bom(weaving_item, dyed_yarn_item=None):
-	"""Get kg of yarn required per unit of weaving item from BOM."""
-	if not weaving_item:
-		return 0
-	bom = frappe.db.get_value(
-		"BOM",
-		{"item": weaving_item, "docstatus": 1},
-		["name"])
-	if not bom:
-		return 0
-	where_clause = "bom_no = %s"
-	params = [bom]
-	if dyed_yarn_item:
-		where_clause += " AND item_code = %s"
-		params.append(dyed_yarn_item)
-	yarn_rows = frappe.db.sql("""
-		SELECT bi.item_code, bi.qty, bi.uom
-		FROM `tabBOM Item` bi
-		WHERE """ + where_clause + """
-		LIMIT 1
-	""", params, as_dict=True)
-	if not yarn_rows:
-		return 0
-	yarn_row = yarn_rows[0]
-	qty = flt(yarn_row.qty)
-	if yarn_row.uom != "kg":
-		pass
-	return qty
-
-
-@frappe.whitelist()
-def reassign_lot(root_lot, new_product):
-	"""Lot Manager can divert lot to different product."""
-	frappe.has_permission("Root Lot", "write", throw=True)
-	lot = frappe.get_doc("Root Lot", root_lot)
-	old_product = lot.product
-	lot.product = new_product
-	lot.save()
-	from lot_trace.events.common import log_exception
-	log_exception(
-		exception_type="Manual Override",
-		severity="Info",
-		root_lot=root_lot,
-		erp_doc_type="Root Lot",
-		erp_doc_name=root_lot,
-		message=_("Lot re-assigned from product {0} to {1}").format(
-			old_product, new_product))
-	return {"message": "Lot reassigned successfully"}
