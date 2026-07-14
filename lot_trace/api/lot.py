@@ -108,6 +108,8 @@ def yarn_per_unit_from_bom(weaving_item, dyed_yarn_item=None):
 	yarn_row = yarn_rows[0]
 	qty = flt(yarn_row.qty)
 	if yarn_row.uom != "kg":
+		# TODO: implement UOM conversion if BOM uses different units (e.g., grams, meters)
+		# For now, assume BOM is in kg or implement frappe.utils.UOM.convert()
 		pass
 	return qty
 
