@@ -26,17 +26,27 @@ def execute(filters=None):
     data = []
     for lot in lots:
         stage_qty = get_stage_balances(lot.name)
+        nt_stage = stage_qty.get("NT", {})
         dy_stage = stage_qty.get("DY", {})
-        dy_in = dy_stage.get("in_qty", 0)  # what was sent to dyer
-        dy_out = dy_stage.get("out_qty", 0)  # what came back
+
+        # Dyed (Kg) = dyed yarn RECEIVED back from dyer (all receipts summed)
+        dyed_received = dy_stage.get("in_qty", 0)
+
+        # Dye loss = ACTUAL kg: greige yarn consumed at the dyer (Subcontracting
+        # Receipt consumption on the NT batch) minus dyed yarn received back.
+        nt_consumed_at_dyer = nt_stage.get("consumed_qty", 0)
+        dye_loss_kg = (round(nt_consumed_at_dyer - dyed_received, 2)
+                       if nt_consumed_at_dyer and dyed_received else 0)
+        dye_loss = loss_pct_for_stage(nt_consumed_at_dyer, dyed_received)
 
         data.append({
             "root_lot": lot.name,
             "product": lot.product,
             "supplier": lot.supplier,
             "received_qty": lot.received_qty,
-            "dyed_qty": dy_out,
-            "dye_loss_pct": loss_pct_for_stage(dy_in, dy_out),
+            "dyed_qty": dyed_received,
+            "dye_loss_kg": dye_loss_kg,
+            "dye_loss_pct": dye_loss,
             "weaved_qty": stage_qty.get("WV", {}).get("in_qty", 0),
             # In-Process = yarn (kg) still in the pipeline, yarn stages only.
             # Weaved pcs stages are a different UOM (Nos) and are excluded.
@@ -63,6 +73,8 @@ def execute(filters=None):
          "fieldtype": "Float", "width": 105},
         {"label": _("Dyed (Kg)"), "fieldname": "dyed_qty", "fieldtype": "Float",
          "width": 90},
+        {"label": _("Dye Loss (Kg)"), "fieldname": "dye_loss_kg", "fieldtype": "Float",
+         "width": 100},
         {"label": _("Dye Loss %"), "fieldname": "dye_loss_pct", "fieldtype": "Percent",
          "width": 90},
         {"label": _("Weaved Pcs"), "fieldname": "weaved_qty", "fieldtype": "Float",
@@ -82,12 +94,20 @@ def execute(filters=None):
 
 
 def get_stage_balances(root_lot):
-    """Get input/output/balance per stage using Stock Ledger Entries."""
+    """Get input/output/consumed/balance per stage using Stock Ledger Entries.
+
+    consumed_qty = qty consumed by a subcontract process (Subcontracting
+    Receipt supplied-item consumption), i.e. real process input — warehouse
+    transfers are NOT consumption and are excluded from it.
+    """
     rows = frappe.db.sql(
         """
         SELECT b.process_stage AS stage,
                SUM(CASE WHEN sle.actual_qty > 0 THEN sle.actual_qty ELSE 0 END) AS in_qty,
                SUM(CASE WHEN sle.actual_qty < 0 THEN ABS(sle.actual_qty) ELSE 0 END) AS out_qty,
+               SUM(CASE WHEN sle.actual_qty < 0
+                         AND sle.voucher_type = 'Subcontracting Receipt'
+                        THEN ABS(sle.actual_qty) ELSE 0 END) AS consumed_qty,
                SUM(sle.actual_qty) AS balance
         FROM `tabStock Ledger Entry` sle
         JOIN `tabBatch` b ON b.name = sle.batch_no
@@ -97,13 +117,13 @@ def get_stage_balances(root_lot):
     return {r.stage: {
         "in_qty": flt(r.in_qty),
         "out_qty": flt(r.out_qty),
+        "consumed_qty": flt(r.consumed_qty),
         "balance": flt(r.balance)
     } for r in rows}
 
 
 def loss_pct_for_stage(in_qty, out_qty):
-    """Loss % = (sent - received) / sent * 100."""
+    """Loss % = (consumed at processor - received back) / consumed * 100."""
     if not flt(in_qty) or not flt(out_qty):
         return 0
-    # loss % based on what was sent, not total purchase
     return round((flt(in_qty) - flt(out_qty)) / flt(in_qty) * 100, 2)
