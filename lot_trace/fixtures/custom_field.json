@@ -21,6 +21,16 @@
   "dt": "Purchase Receipt Item", "fieldname": "root_lot", "fieldtype": "Link",
   "options": "Root Lot", "label": "Root Lot", "insert_after": "item_name",
   "in_list_view": 1, "module": "Lot Trace"},
+ {"doctype": "Custom Field", "name": "Purchase Receipt-lot_consumption_section",
+  "dt": "Purchase Receipt", "fieldname": "lot_consumption_section",
+  "fieldtype": "Section Break", "label": "Lot Consumption (Multi-Lot Weaving)",
+  "insert_after": "items", "collapsible": 1, "module": "Lot Trace"},
+ {"doctype": "Custom Field", "name": "Purchase Receipt-lot_consumption",
+  "dt": "Purchase Receipt", "fieldname": "lot_consumption", "fieldtype": "Table",
+  "options": "Lot Consumption Detail", "label": "Lot Consumption",
+  "insert_after": "lot_consumption_section",
+  "description": "Fill ONLY when the weaved pcs consumed dyed yarn from MORE THAN ONE root lot. List every lot (including the primary on the item row) with the kg consumed.",
+  "module": "Lot Trace"},
 
  {"doctype": "Custom Field", "name": "Subcontracting Order-lot_stage",
   "dt": "Subcontracting Order", "fieldname": "lot_stage", "fieldtype": "Link",
@@ -77,5 +87,16 @@
   "fieldname": "represents_supplier", "fieldtype": "Link", "options": "Supplier",
   "label": "Represents Supplier", "insert_after": "lot_trace_enabled",
   "description": "Link the weaver's Supplier record when this customer is the same party (buys dyed yarn as Customer, sells back weaved pcs as Supplier)",
+  "module": "Lot Trace"},
+
+ {"doctype": "Custom Field", "name": "Lot Naming Rule-route", "dt": "Lot Naming Rule",
+  "fieldname": "route", "fieldtype": "Link", "options": "Lot Route",
+  "label": "Lot Route", "insert_after": "product",
+  "description": "Per-product stage sequence. Leave empty to use the global Lot Process Stage sequence.",
+  "module": "Lot Trace"},
+ {"doctype": "Custom Field", "name": "Root Lot-route", "dt": "Root Lot",
+  "fieldname": "route", "fieldtype": "Link", "options": "Lot Route",
+  "label": "Lot Route", "insert_after": "current_stage", "read_only": 1,
+  "description": "Copied from the Lot Naming Rule at lot birth",
   "module": "Lot Trace"}
 ]
