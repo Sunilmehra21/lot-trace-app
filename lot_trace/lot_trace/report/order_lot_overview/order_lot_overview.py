@@ -47,7 +47,7 @@ def execute(filters=None):
             "dyed_qty": dyed_received,
             "dye_loss_kg": dye_loss_kg,
             "dye_loss_pct": dye_loss,
-            "weaved_qty": stage_qty.get("WV", {}).get("in_qty", 0),
+            "weaved_qty": stage_qty.get("WV", {}).get("balance", 0),
             # In-Process = yarn (kg) still in the pipeline, yarn stages only.
             # Weaved pcs stages are a different UOM (Nos) and are excluded.
             "in_process_qty": sum(
