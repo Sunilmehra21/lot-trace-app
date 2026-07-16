@@ -1,0 +1,22 @@
+{
+ "content": null,
+ "creation": "2026-07-15 00:00:00",
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-07-15 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Lot Trace",
+ "name": "lot-flow",
+ "owner": "Administrator",
+ "page_name": "lot-flow",
+ "roles": [
+  {"role": "Lot Manager"},
+  {"role": "Lot User"},
+  {"role": "System Manager"}
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Lot Flow Chart"
+}
