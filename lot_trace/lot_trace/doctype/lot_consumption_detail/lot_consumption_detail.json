@@ -1,0 +1,26 @@
+{
+ "actions": [],
+ "creation": "2026-07-15 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": ["root_lot", "dyed_yarn_item", "qty_kg"],
+ "fields": [
+  {"fieldname": "root_lot", "fieldtype": "Link", "label": "Root Lot",
+   "options": "Root Lot", "reqd": 1, "in_list_view": 1},
+  {"fieldname": "dyed_yarn_item", "fieldtype": "Link", "label": "Dyed Yarn Item",
+   "options": "Item", "in_list_view": 1},
+  {"fieldname": "qty_kg", "fieldtype": "Float", "label": "Qty Consumed (Kg)",
+   "reqd": 1, "in_list_view": 1}
+ ],
+ "links": [],
+ "modified": "2026-07-15 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Lot Trace",
+ "name": "Lot Consumption Detail",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
