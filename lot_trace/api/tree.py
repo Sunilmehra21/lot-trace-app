@@ -39,6 +39,16 @@ def get_trace_tree(root_lot):
     lot["open_exceptions"] = frappe.db.count(
         "Lot Exception", {"root_lot": root_lot, "resolved": 0})
 
+    # the lot's FULL planned route (for true progress %): the Lot Route
+    # when set, else all active global stages in sequence
+    from lot_trace.events.common import get_route_stages
+    planned = get_route_stages(root_lot)
+    if not planned:
+        planned = frappe.get_all(
+            "Lot Process Stage", filters={"active": 1},
+            order_by="sequence asc", pluck="name")
+    lot["planned_stages"] = planned
+
     # all stage batches of this lot, in process sequence
     batches = frappe.db.sql("""
         SELECT b.name AS batch, b.item, b.process_stage,

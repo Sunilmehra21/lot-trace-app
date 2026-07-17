@@ -39,6 +39,9 @@
 	padding: 3px 0;
 	font-size: 12.5px;
 }
+.ltt-kv.ltt-pending {
+	opacity: 0.55;
+}
 .ltt-title {
 	margin-bottom: 12px;
 }
@@ -97,6 +100,7 @@ ul.ltt-branch > li::before {
 	border-radius: 9px;
 	text-transform: uppercase;
 }
+/* distinct color per stage */
 .st-nt {
 	background: #ede7f6;
 	color: #5e35b1;
@@ -109,13 +113,38 @@ ul.ltt-branch > li::before {
 	background: #e0f2f1;
 	color: #00695c;
 }
-.st-mid {
+.st-ct {
+	background: #fff3e0;
+	color: #e65100;
+}
+.st-st {
 	background: #fff8e1;
 	color: #a06b00;
+}
+.st-em {
+	background: #f3e5f5;
+	color: #7b1fa2;
+}
+.st-fn {
+	background: #e8f5e9;
+	color: #2e7d32;
+}
+.st-pk {
+	background: #efebe9;
+	color: #5d4037;
 }
 .st-fg {
 	background: #fce4ec;
 	color: #ad1457;
+}
+.st-mid {
+	background: #eceff1;
+	color: #455a64;
+}
+.st-pending {
+	background: #f4f5f6;
+	color: #90a1af;
+	border: 1px dashed #c8d1d9;
 }
 .ltt-loss {
 	font-size: 11px;

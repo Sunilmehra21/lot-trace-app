@@ -69,7 +69,8 @@ def get_lot_flow(sales_order=None, product=None, root_lot=None):
 
 def build_cells(root_lot):
     """Per-stage cell data for one lot: qty in/out/balance (transfers netted),
-    first + last voucher, and DY custody (sold to whom, balance there)."""
+    the FULL voucher list (so the page can show all of them, not just the
+    first), and DY custody (sold to whom, balance there)."""
     sle = frappe.db.sql("""
         SELECT b.process_stage AS stage, sle.voucher_type, sle.voucher_no,
                sle.actual_qty, sle.stock_uom, sle.posting_date
@@ -100,7 +101,12 @@ def build_cells(root_lot):
             in_qty += pos - transfer
             out_qty += neg - transfer
             if transfer == 0:
-                vouchers.append({"voucher_type": key[0], "voucher_no": key[1]})
+                vouchers.append({
+                    "voucher_type": key[0],
+                    "voucher_no": key[1],
+                    "qty": round(pos - neg, 2),
+                    "date": str(rows_[0].posting_date),
+                })
             # DY custody: sold via DN/SI
             if (stage == "DY" and key[0] in ("Delivery Note", "Sales Invoice")
                     and neg > 0):
@@ -115,6 +121,8 @@ def build_cells(root_lot):
             "uom": movements[0].stock_uom if movements else "",
             "first_voucher": vouchers[0] if vouchers else None,
             "voucher_count": len(vouchers),
+            # full list so the page can render/open every transaction
+            "vouchers": vouchers,
             "sold_to": [{"party": p, "qty": round(q, 2)}
                         for p, q in sold_to.items()],
         }

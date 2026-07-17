@@ -12,6 +12,10 @@ fixtures = [
     {"dt": "Lot Process Stage"},
 ]
 
+doctype_js = {
+    "Purchase Receipt": "public/js/purchase_receipt.js",
+}
+
 doc_events = {
     "Purchase Receipt": {
         "before_submit": "lot_trace.events.purchase_receipt.before_submit",

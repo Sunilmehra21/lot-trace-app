@@ -1,14 +1,17 @@
 # Purchase Receipt:
-#  A) greige yarn from spinner  -> LOT BIRTH: create Root Lot + '-NT' batch
-#  B) weaved pcs from weaver    -> BRIDGE: root_lot mandatory on row -> '-WV' batch
+#  A) greige yarn / fabric from supplier -> LOT BIRTH: Root Lot + first-stage batch
+#     (first stage = the lot route's first stage; NT when no route — so a
+#     product can start directly with FABRIC by giving its route a first
+#     stage other than NT)
+#  B) weaved pcs from weaver             -> BRIDGE: root_lot mandatory on row -> '-WV' batch
 
 import frappe
 from frappe import _
 from frappe.utils import flt
 from lot_trace.events.common import (
-    create_stage_batch, find_naming_rule, log_exception, make_lot_code)
+    create_stage_batch, find_naming_rule, first_stage_for_rule,
+    log_exception, make_lot_code)
 
-FIRST_STAGE = "NT"
 WEAVE_STAGE = "WV"
 
 
@@ -47,15 +50,18 @@ def before_submit(doc, method=None):
             row.batch_no = create_stage_batch(row.root_lot, WEAVE_STAGE, row.item_code)
             continue
 
-        # A) yarn lot birth ────────────────────────────────────────────
-        # This is a new greige yarn receipt from spinner: create Root Lot + -NT batch
+        # A) lot birth ────────────────────────────────────────────────
+        # New material receipt from supplier: create Root Lot + first-stage
+        # batch. The first stage comes from the rule's Lot Route (NT default;
+        # a fabric-first product routes e.g. WV → CT → … and births at WV).
         rule = find_naming_rule(yarn_item=row.item_code)
         if not rule:
             continue  # not a traced item (no naming rule found)
 
+        first_stage = first_stage_for_rule(rule)
         lot_code = make_lot_code(rule, doc.posting_date)
-        create_root_lot(doc, row, rule, lot_code)
-        row.batch_no = create_stage_batch(lot_code, FIRST_STAGE, row.item_code)
+        create_root_lot(doc, row, rule, lot_code, first_stage)
+        row.batch_no = create_stage_batch(lot_code, first_stage, row.item_code)
         row.root_lot = lot_code
 
 
@@ -87,7 +93,13 @@ def validate_lot_reached_weaver(root_lot, idx):
 
 
 def dyed_kg_sold_to_weaver(root_lot, supplier):
-    """Total dyed yarn (kg) of this lot sold/issued to this weaver."""
+    """Total dyed yarn (kg) of this lot sold/issued to this weaver.
+
+    Weaver duality: the DN/SI customer may be a different record than the
+    PR supplier — resolved via Customer.represents_supplier + same name.
+    """
+    from lot_trace.api.lot import customers_for_supplier
+    customers = customers_for_supplier(supplier) or [supplier]
     sold_qty = frappe.db.sql(
         """
         SELECT SUM(ABS(sle.actual_qty)) AS sold
@@ -101,9 +113,10 @@ def dyed_kg_sold_to_weaver(root_lot, supplier):
           AND b.process_stage = 'DY'
           AND sle.actual_qty < 0
           AND sle.voucher_type IN ('Delivery Note', 'Sales Invoice')
-          AND (dn.customer = %s OR si.customer = %s)
+          AND COALESCE(dn.customer, si.customer) IN ({})
           AND sle.is_cancelled = 0
-        """, (root_lot, supplier, supplier), as_dict=True)
+        """.format(", ".join(["%s"] * len(customers))),
+        tuple([root_lot] + customers), as_dict=True)
     return flt(sold_qty[0].sold if sold_qty and sold_qty[0].sold else 0)
 
 
@@ -154,15 +167,19 @@ def handle_multi_lot_weaving(doc, row):
                 "received qty."
             ).format(round(total_kg, 2), row.qty, round(expected_kg, 2)))
 
-    # each lot: consumed kg must not exceed dyed yarn sold to THIS weaver
+    # each lot: consumed kg must not exceed dyed yarn STILL AVAILABLE with
+    # this weaver (sold minus already consumed by earlier weaving PRs)
+    from lot_trace.api.lot import get_dyed_available
     for e in entries:
-        available = dyed_kg_sold_to_weaver(e.root_lot, doc.supplier)
-        if flt(e.qty_kg) > available + 0.1:
+        avail = get_dyed_available(e.root_lot, doc.supplier)
+        if flt(e.qty_kg) > flt(avail["available_kg"]) + 0.1:
             frappe.throw(_(
                 "Lot Consumption: lot {0} claims {1} kg consumed, but only "
-                "{2} kg dyed yarn was sold to weaver {3} under that lot."
+                "{2} kg dyed yarn is still available with weaver {3} "
+                "(sold {4} kg, already consumed {5} kg)."
             ).format(e.root_lot, round(flt(e.qty_kg), 2),
-                     round(available, 2), doc.supplier))
+                     avail["available_kg"], doc.supplier,
+                     avail["sold_kg"], avail["consumed_kg"]))
 
     # audit trail for the merge (secondary lots)
     for e in entries:
@@ -209,29 +226,7 @@ def validate_weaving_qty_vs_dyed(root_lot, weaving_qty, weaving_item, supplier):
     # Calculate: how much dyed yarn this many pcs would consume
     expected_kg = flt(weaving_qty) * kg_per_pc
 
-    # Query: dyed yarn sold to THIS SPECIFIC WEAVER for THIS LOT
-    sold_qty = frappe.db.sql(
-        """
-        SELECT SUM(ABS(sle.actual_qty)) AS sold
-        FROM `tabStock Ledger Entry` sle
-        JOIN `tabBatch` b ON b.name = sle.batch_no
-        LEFT JOIN `tabDelivery Note` dn ON (
-            sle.voucher_type = 'Delivery Note'
-            AND sle.voucher_no = dn.name
-        )
-        LEFT JOIN `tabSales Invoice` si ON (
-            sle.voucher_type = 'Sales Invoice'
-            AND sle.voucher_no = si.name
-        )
-        WHERE b.root_lot = %s
-          AND b.process_stage = 'DY'
-          AND sle.actual_qty < 0
-          AND sle.voucher_type IN ('Delivery Note', 'Sales Invoice')
-          AND (dn.customer = %s OR si.customer = %s)
-          AND sle.is_cancelled = 0
-        """, (root_lot, supplier, supplier), as_dict=True)
-
-    available_kg = flt(sold_qty[0].sold if sold_qty and sold_qty[0].sold else 0)
+    available_kg = dyed_kg_sold_to_weaver(root_lot, supplier)
 
     # Check: required kg <= available kg (with 0.1 kg tolerance for rounding)
     if expected_kg > available_kg + 0.1:
@@ -248,8 +243,8 @@ def validate_weaving_qty_vs_dyed(root_lot, weaving_qty, weaving_item, supplier):
         ))
 
 
-def create_root_lot(doc, row, rule, lot_code):
-    """Create a new Root Lot record (lot birth from yarn receipt)."""
+def create_root_lot(doc, row, rule, lot_code, first_stage="NT"):
+    """Create a new Root Lot record (lot birth from a material receipt)."""
     lot = frappe.new_doc("Root Lot")
     lot.update({
         "lot_code": lot_code,
@@ -261,7 +256,7 @@ def create_root_lot(doc, row, rule, lot_code):
         "purchase_receipt": doc.name,
         "received_qty": flt(row.qty),
         "uom": row.uom,
-        "current_stage": FIRST_STAGE,
+        "current_stage": first_stage,
         "status": "Open",
         # per-product stage sequence, copied from the naming rule at birth
         "route": rule.get("route"),
@@ -300,6 +295,8 @@ def on_cancel(doc, method=None):
         # Cancelled return — no special handling
         return
 
+    from lot_trace.events.common import first_stage_of_lot
+
     for row in doc.items:
         rl = row.get("root_lot")
         if not rl or not frappe.db.exists("Root Lot", rl):
@@ -309,10 +306,12 @@ def on_cancel(doc, method=None):
         if frappe.db.get_value("Root Lot", rl, "purchase_receipt") != doc.name:
             continue
 
-        # Check: does this lot have downstream batches (DY, WV, CT, etc.)?
+        birth_stage = first_stage_of_lot(rl)
+
+        # Check: does this lot have downstream batches beyond its birth stage?
         other_batches = frappe.get_all(
             "Batch",
-            filters={"root_lot": rl, "process_stage": ["!=", "NT"]},
+            filters={"root_lot": rl, "process_stage": ["!=", birth_stage]},
             pluck="name")
 
         if other_batches:
@@ -327,15 +326,17 @@ def on_cancel(doc, method=None):
                           "batches: {1}").format(rl, ", ".join(other_batches)))
             continue
 
-        # Lot is still at NT stage and untouched — safe to cleanup
-        nt_batch = f"{rl}-NT"
+        # Lot is still at its birth stage and untouched — safe to cleanup
+        birth_suffix = frappe.db.get_value(
+            "Lot Process Stage", birth_stage, "batch_suffix") or birth_stage
+        birth_batch = f"{rl}-{birth_suffix}"
         sle_count = frappe.db.count(
             "Stock Ledger Entry",
-            {"batch_no": nt_batch, "is_cancelled": 0})
+            {"batch_no": birth_batch, "is_cancelled": 0})
 
         if sle_count == 0:
             # No stock ledger entries — clean deletion
-            frappe.delete_doc("Batch", nt_batch, ignore_permissions=True, force=True)
+            frappe.delete_doc("Batch", birth_batch, ignore_permissions=True, force=True)
             frappe.delete_doc("Root Lot", rl, ignore_permissions=True, force=True)
         else:
             # Stock has been moved — mark as Short Closed

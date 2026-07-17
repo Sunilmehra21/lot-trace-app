@@ -112,11 +112,19 @@
 	border-radius: 4px;
 	padding: 0 5px;
 	align-self: flex-start;
+}
+.lfc-doc a {
+	color: #1470b8;
 	text-decoration: none;
 }
-.lfc-doc:hover {
-	background: #dceefb;
-	text-decoration: none;
+.lfc-doc a:hover {
+	text-decoration: underline;
+}
+.lfc-more {
+	margin-left: 4px;
+	font-weight: 700;
+	color: #b26a00 !important;
+	cursor: pointer;
 }
 .lfc-cust {
 	font-size: 10px;
@@ -173,4 +181,39 @@
 .lfc-empty {
 	padding: 60px 0;
 	text-align: center;
+}
+/* vouchers dialog (+N click) */
+.lfc-dlg {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.lfc-dlgrow {
+	display: grid;
+	grid-template-columns: 1fr auto auto auto;
+	gap: 10px;
+	align-items: center;
+	padding: 6px 8px;
+	border: 1px solid #e8ebee;
+	border-radius: 6px;
+	font-size: 12px;
+}
+.lfc-dlgrow a {
+	font-weight: 600;
+}
+.lfc-dlgtype {
+	color: #74808b;
+	font-size: 11px;
+}
+.lfc-dlgqty.lfc-pos {
+	color: #2e7d32;
+	font-weight: 700;
+}
+.lfc-dlgqty.lfc-neg {
+	color: #c62828;
+	font-weight: 700;
+}
+.lfc-dlgdate {
+	color: #74808b;
+	font-size: 11px;
 }

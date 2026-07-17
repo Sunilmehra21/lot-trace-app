@@ -58,6 +58,32 @@ class LotFlowChart {
 		});
 	}
 
+	voucher_url(v) {
+		return `/app/${frappe.router.slug(v.voucher_type)}/${encodeURIComponent(v.voucher_no)}`;
+	}
+
+	show_vouchers_dialog(lot, stage, vouchers) {
+		// "+N" click: list ALL the stage's transactions, each opens its doc
+		const rows = vouchers
+			.map(
+				(v) => `<div class="lfc-dlgrow">
+					<a href="${this.voucher_url(v)}" target="_blank">
+						${frappe.utils.escape_html(v.voucher_no)}</a>
+					<span class="lfc-dlgtype">${frappe.utils.escape_html(__(v.voucher_type))}</span>
+					<span class="lfc-dlgqty ${v.qty >= 0 ? "lfc-pos" : "lfc-neg"}">
+						${v.qty >= 0 ? "+" : ""}${v.qty}</span>
+					<span class="lfc-dlgdate">${frappe.datetime.str_to_user(v.date)}</span>
+				</div>`
+			)
+			.join("");
+		const d = new frappe.ui.Dialog({
+			title: __("{0} — {1}: {2} transactions", [lot, stage, vouchers.length]),
+			size: "small",
+		});
+		d.$body.html(`<div class="lfc-dlg">${rows}</div>`);
+		d.show();
+	}
+
 	render(data) {
 		this.$body.empty();
 		if (!data || !data.rows.length) {
@@ -100,17 +126,23 @@ class LotFlowChart {
 					$row.append(`<div class="lfc-cell lfc-cellempty"></div>`);
 					return;
 				}
-				const doc = c.first_voucher
-					? `<a class="lfc-doc"
-						href="/app/${frappe.router.slug(c.first_voucher.voucher_type)}/${encodeURIComponent(c.first_voucher.voucher_no)}">
-						${frappe.utils.escape_html(c.first_voucher.voucher_no)}${c.voucher_count > 1 ? " +" + (c.voucher_count - 1) : ""}</a>`
-					: "";
+				const vouchers = c.vouchers || (c.first_voucher ? [c.first_voucher] : []);
+				let doc = "";
+				if (vouchers.length) {
+					const first = vouchers[0];
+					const more =
+						vouchers.length > 1
+							? `<a class="lfc-more" href="#">+${vouchers.length - 1}</a>`
+							: "";
+					doc = `<span class="lfc-doc">
+						<a href="${this.voucher_url(first)}">${frappe.utils.escape_html(first.voucher_no)}</a>${more}</span>`;
+				}
 				const custody = (c.sold_to || [])
 					.map((st) => `<span class="lfc-cust">📍 ${frappe.utils.escape_html(st.party)} · ${st.qty}</span>`)
 					.join("");
 				const arrow = si < stages.length - 1 ? `<span class="lfc-arrow">➤</span>` : "";
 				const is_current = row.current_stage === s.name;
-				$row.append(`
+				const $cell = $(`
 					<div class="lfc-cell ${is_current ? "lfc-current" : ""}" style="border-left-color:${color}">
 						<span class="lfc-batch">…${frappe.utils.escape_html(s.name)}</span>
 						<span class="lfc-qty"><b>${c.in_qty}</b> ${c.uom}
@@ -120,6 +152,11 @@ class LotFlowChart {
 						${is_current ? `<span class="lfc-chip">${__("CURRENT")}</span>` : ""}
 						${arrow}
 					</div>`);
+				$cell.find(".lfc-more").on("click", (e) => {
+					e.preventDefault();
+					this.show_vouchers_dialog(row.lot, s.name, vouchers);
+				});
+				$row.append($cell);
 			});
 		});
 

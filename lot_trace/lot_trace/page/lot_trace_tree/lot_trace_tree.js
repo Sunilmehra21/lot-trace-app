@@ -113,7 +113,18 @@ class LotTraceTree {
 	}
 
 	stage_class(stage) {
-		const map = { NT: "st-nt", DY: "st-dy", WV: "st-wv", FG: "st-fg" };
+		// every stage has its own distinct color
+		const map = {
+			NT: "st-nt",
+			DY: "st-dy",
+			WV: "st-wv",
+			CT: "st-ct",
+			ST: "st-st",
+			EM: "st-em",
+			FN: "st-fn",
+			PK: "st-pk",
+			FG: "st-fg",
+		};
 		return map[stage] || "st-mid";
 	}
 
@@ -220,19 +231,48 @@ class LotTraceTree {
 			)
 			.join("");
 
-		// progress: dispatched vs FG produced (fallback: stages reached)
+		// TRUE progress = stages reached vs the lot's FULL planned route
+		// (planned_stages from the Lot Route, or all active global stages).
+		// The old formula divided by created batches only, so an unfinished
+		// chain already showed 100%.
 		const fg = flt(lot.fg_qty), disp = flt(lot.dispatched_qty);
+		const planned = lot.planned_stages || [];
+		const active_stages = new Set(
+			nodes.filter((n) => n.in_qty > 0).map((n) => n.stage)
+		);
+		const done = planned.filter((s) => active_stages.has(s)).length;
 		let pct = 0, prog_label = "";
-		if (fg > 0) {
-			pct = Math.min(100, Math.round((disp / fg) * 100));
-			prog_label = __("{0}% of FG dispatched", [pct]);
+		if (planned.length) {
+			pct = Math.round((done / planned.length) * 100);
+			prog_label = __("{0} of {1} planned stages reached", [done, planned.length]);
+			if (fg > 0) {
+				const dpct = Math.min(100, Math.round((disp / fg) * 100));
+				prog_label += " · " + __("{0}% of FG dispatched", [dpct]);
+			}
 		} else {
-			// pipeline progress = stages that have received qty
 			const active = nodes.filter((n) => n.in_qty > 0).length;
 			pct = nodes.length ? Math.round((active / nodes.length) * 100) : 0;
 			prog_label = __("{0} of {1} stages active", [active, nodes.length]);
 		}
 		const bar_color = pct >= 100 ? "#2e7d32" : pct > 0 ? "#2490ef" : "#eceff1";
+
+		// stage progress rows: show ALL planned stages; pending ones greyed
+		const node_by_stage = {};
+		nodes.forEach((n) => (node_by_stage[n.stage] = n));
+		const stage_rows = (planned.length ? planned : nodes.map((n) => n.stage))
+			.map((s) => {
+				const n = node_by_stage[s];
+				if (n) {
+					return `<div class="ltt-kv">
+						<span><span class="ltt-stage ${this.stage_class(n.stage)}">${n.stage}</span>
+							${frappe.utils.escape_html(n.stage_name)}</span>
+						<b>${n.in_qty} ${n.uom}</b></div>`;
+				}
+				return `<div class="ltt-kv ltt-pending">
+					<span><span class="ltt-stage st-pending">${frappe.utils.escape_html(s)}</span>
+						${__("pending")}</span><b>—</b></div>`;
+			})
+			.join("");
 
 		$side.append(`
 			<div class="ltt-panel">
@@ -249,14 +289,7 @@ class LotTraceTree {
 			</div>
 			<div class="ltt-panel">
 				<h6>${__("Stage progress")}</h6>
-				${nodes
-					.map(
-						(n) => `<div class="ltt-kv">
-					<span><span class="ltt-stage ${this.stage_class(n.stage)}">${n.stage}</span>
-						${frappe.utils.escape_html(n.stage_name)}</span>
-					<b>${n.in_qty} ${n.uom}</b></div>`
-					)
-					.join("")}
+				${stage_rows}
 				<div class="ltt-prog"><div style="width:${pct}%;background:${bar_color}"></div></div>
 				<div class="ltt-prog-label">${prog_label}</div>
 			</div>
@@ -266,7 +299,11 @@ class LotTraceTree {
 					<span class="ltt-stage st-nt">NT</span>
 					<span class="ltt-stage st-dy">DY</span>
 					<span class="ltt-stage st-wv">WV</span>
-					<span class="ltt-stage st-mid">CT/ST/EM/FN/PK</span>
+					<span class="ltt-stage st-ct">CT</span>
+					<span class="ltt-stage st-st">ST</span>
+					<span class="ltt-stage st-em">EM</span>
+					<span class="ltt-stage st-fn">FN</span>
+					<span class="ltt-stage st-pk">PK</span>
 					<span class="ltt-stage st-fg">FG</span>
 				</div>
 				<h6 style="margin-top:12px">${__("Markers")}</h6>

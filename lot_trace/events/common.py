@@ -21,6 +21,11 @@ def find_naming_rule(yarn_item=None, product=None, customer=None):
     - Item.lot_trace_enabled unchecked -> item is never traced
     - Customer.lot_trace_enabled (when a customer is resolvable) -> only
       opted-in customers are traced. If no customer context, rule applies.
+
+    Multi-yarn products: create ONE Lot Naming Rule per yarn item (they can
+    share the same product and prefix) — each yarn receipt then births its
+    own root lot, and the lots meet at weaving via the Lot Consumption
+    (multi-lot weaving) table.
     """
     # item-level opt-out
     if yarn_item:
@@ -80,6 +85,27 @@ def get_route_stages(root_lot):
     return stages or None
 
 
+def first_stage_for_rule(rule):
+    """First stage of a rule's route. Products that START with fabric (no
+    greige yarn stage) set a Lot Route beginning at their real first stage
+    (e.g. WV or a custom FB stage) — lot birth then uses that stage instead
+    of hardcoded NT."""
+    route = rule.get("route")
+    if route:
+        stages = frappe.get_all(
+            "Lot Route Stage", filters={"parent": route},
+            order_by="idx asc", pluck="stage")
+        if stages:
+            return stages[0]
+    return "NT"
+
+
+def first_stage_of_lot(root_lot):
+    """The birth stage of an existing lot (route-aware, falls back to NT)."""
+    stages = get_route_stages(root_lot)
+    return stages[0] if stages else "NT"
+
+
 def stage_order_index(root_lot, stage_code):
     """Position of a stage in the lot's route (route order beats global sequence)."""
     stages = get_route_stages(root_lot)
@@ -122,7 +148,9 @@ def create_stage_batch(root_lot, stage_code, item_code):
     existing = frappe.db.get_value("Batch", batch_id, ["item"], as_dict=True)
     if existing:
         if existing.item != item_code:
-            # same lot reaches same stage with a different item (rare) -> item-suffixed id
+            # same lot reaches same stage with a different item — normal for
+            # MULTI-COLOR dyeing (one lot dyed into several colors): each
+            # color item gets its own item-suffixed batch id.
             batch_id = f"{root_lot}-{stage.batch_suffix}-{frappe.scrub(item_code)[:8].upper()}"
             if frappe.db.exists("Batch", batch_id):
                 return batch_id
