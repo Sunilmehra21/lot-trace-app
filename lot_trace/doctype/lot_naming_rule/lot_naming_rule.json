@@ -1,0 +1,123 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:product",
+ "creation": "2026-07-19 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "product",
+  "active",
+  "column_break_setup",
+  "lot_code_prefix",
+  "lot_route",
+  "section_yarns",
+  "yarns",
+  "section_legacy",
+  "yarn_item",
+  "legacy_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Product (Finished Good)",
+   "options": "Item",
+   "reqd": 1,
+   "unique": 1,
+   "description": "One rule per finished product"
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "column_break_setup",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "MV/BG",
+   "fieldname": "lot_code_prefix",
+   "fieldtype": "Data",
+   "label": "Lot Code Prefix",
+   "reqd": 1,
+   "description": "Fixed prefix (e.g., MV/BG). Serial is auto-generated: MV/BG/0726/01, 02, 03..."
+  },
+  {
+   "fieldname": "lot_route",
+   "fieldtype": "Link",
+   "label": "Lot Route",
+   "options": "Lot Route",
+   "description": "Link to the stage chain this product follows (NT → DY → WV → CT)"
+  },
+  {
+   "fieldname": "section_yarns",
+   "fieldtype": "Section Break",
+   "label": "Yarns"
+  },
+  {
+   "fieldname": "yarns",
+   "fieldtype": "Table",
+   "label": "Yarns",
+   "options": "Lot Naming Rule Yarn"
+  },
+  {
+   "fieldname": "section_legacy",
+   "fieldtype": "Section Break",
+   "label": "Legacy (Phase 5)"
+  },
+  {
+   "fieldname": "yarn_item",
+   "fieldtype": "Link",
+   "label": "Yarn Item (Greige) — LEGACY",
+   "options": "Item",
+   "read_only": 1,
+   "description": "Phase 5 field. Use Yarns table above for multi-yarn products."
+  },
+  {
+   "fieldname": "legacy_note",
+   "fieldtype": "Small Text",
+   "label": "Note",
+   "read_only": 1,
+   "default": "Phase 5 single-yarn fields kept for backward compatibility. New rules should use the Yarns table above to handle multiple yarn items (primary + secondary)."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-19 00:00:00.000000",
+ "module": "Lot Trace",
+ "name": "Lot Naming Rule",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Manufacturing Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
