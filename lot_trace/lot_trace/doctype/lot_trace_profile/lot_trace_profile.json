@@ -1,0 +1,122 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:product",
+ "creation": "2026-07-19 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "product",
+  "active",
+  "column_break_setup",
+  "lot_code_pattern",
+  "route",
+  "weaving_tolerance_pct",
+  "section_trace_items",
+  "trace_items",
+  "section_batch_rules",
+  "batch_naming_rules"
+ ],
+ "fields": [
+  {
+   "fieldname": "product",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Finished Product",
+   "options": "Item",
+   "reqd": 1,
+   "unique": 1,
+   "description": "One profile per finished good. All yarns of this product are configured below."
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "column_break_setup",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "MV/BG/{MMYY}/{##}",
+   "fieldname": "lot_code_pattern",
+   "fieldtype": "Data",
+   "label": "Lot Code Pattern",
+   "reqd": 1,
+   "description": "Tokens: {MMYY} = month+year, {##} = serial (padding = number of #). Example: MV/BG/{MMYY}/{##} -> MV/BG/0726/01"
+  },
+  {
+   "default": "NT → DY → WV → CT",
+   "fieldname": "route",
+   "fieldtype": "Data",
+   "label": "Stage Route",
+   "description": "Informational: the stage chain this product follows."
+  },
+  {
+   "default": "2",
+   "fieldname": "weaving_tolerance_pct",
+   "fieldtype": "Percent",
+   "label": "Weaving Tolerance %",
+   "description": "Allowed variance between BOM-expected and actual consumed yarn per item."
+  },
+  {
+   "fieldname": "section_trace_items",
+   "fieldtype": "Section Break",
+   "label": "Trace Items (Yarns)"
+  },
+  {
+   "fieldname": "trace_items",
+   "fieldtype": "Table",
+   "label": "Trace Items",
+   "options": "Lot Trace Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_batch_rules",
+   "fieldtype": "Section Break",
+   "label": "Batch Naming Rules"
+  },
+  {
+   "fieldname": "batch_naming_rules",
+   "fieldtype": "Table",
+   "label": "Batch Naming Rules",
+   "options": "Lot Batch Naming Rule"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-19 00:00:00.000000",
+ "module": "Lot Trace",
+ "name": "Lot Trace Profile",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Manufacturing Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,1 +1,5 @@
-# patches
+[post_model_sync]
+# Phase 6 — run in this order.
+lot_trace.patches.v6_0_add_custom_fields
+lot_trace.patches.v6_0_extend_root_lot
+lot_trace.patches.v6_0_migrate_naming_rules_to_profiles

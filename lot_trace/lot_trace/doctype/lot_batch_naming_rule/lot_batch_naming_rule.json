@@ -1,0 +1,52 @@
+{
+ "actions": [],
+ "creation": "2026-07-19 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "stage",
+  "pattern",
+  "example"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "stage",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Stage",
+   "reqd": 1,
+   "description": "Stage code: NT, DY, WV, CT."
+  },
+  {
+   "columns": 4,
+   "fieldname": "pattern",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Pattern",
+   "reqd": 1,
+   "description": "Tokens: {LOT} {ABBR} {COLOR} {STAGE}. Must contain {LOT}. Empty tokens collapse cleanly."
+  },
+  {
+   "columns": 4,
+   "fieldname": "example",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Example",
+   "read_only": 1,
+   "description": "Illustrative result."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-19 00:00:00.000000",
+ "module": "Lot Trace",
+ "name": "Lot Batch Naming Rule",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

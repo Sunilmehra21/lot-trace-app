@@ -1,9 +1,12 @@
 # Whitelisted lot APIs: full trace, product re-assignment (audited),
 # at-weaver balance (BOM-based yarn conversion), weaver-aware link queries,
-# dyed-yarn availability, and lot birth from existing stock.
+# per-item dyed availability, BOM-based weaving allocation (Phase 5),
+# effective lot status, and lot birth from existing stock.
 import frappe
 from frappe import _
 from frappe.utils import flt
+
+EPS = 1e-6
 
 
 @frappe.whitelist()
@@ -54,6 +57,14 @@ def reassign_lot(root_lot, new_product, reason):
 	return lot.name
 
 
+def get_bom_for_item(item_code):
+	"""Default active BOM -> any active -> any submitted."""
+	return (frappe.db.get_value("BOM", {"item": item_code, "is_active": 1,
+	                                    "is_default": 1}, "name")
+	        or frappe.db.get_value("BOM", {"item": item_code, "is_active": 1}, "name")
+	        or frappe.db.get_value("BOM", {"item": item_code, "docstatus": 1}, "name"))
+
+
 def yarn_per_unit_from_bom(weaved_item, dyed_yarn_item=None):
 	"""kg of dyed yarn consumed per 1 unit of weaved pcs, from the item's BOM.
 
@@ -63,10 +74,7 @@ def yarn_per_unit_from_bom(weaved_item, dyed_yarn_item=None):
 	"""
 	if not weaved_item:
 		return 0
-	# Prefer the default active BOM, fall back to any active / submitted BOM
-	bom = (frappe.db.get_value("BOM", {"item": weaved_item, "is_active": 1, "is_default": 1}, "name")
-	       or frappe.db.get_value("BOM", {"item": weaved_item, "is_active": 1}, "name")
-	       or frappe.db.get_value("BOM", {"item": weaved_item, "docstatus": 1}, "name"))
+	bom = get_bom_for_item(weaved_item)
 	if not bom:
 		return 0
 	filters = {"parent": bom}
@@ -78,6 +86,25 @@ def yarn_per_unit_from_bom(weaved_item, dyed_yarn_item=None):
 		return 0
 	bom_qty = flt(frappe.db.get_value("BOM", bom, "quantity")) or 1
 	return sum(flt(r.stock_qty) for r in rows) / bom_qty
+
+
+def dyed_requirements_from_bom(weaved_item, pcs):
+	"""PER-ITEM BOM requirement for `pcs` of the weaved item.
+
+	Returns {yarn_item_code: kg_required}. Multi-yarn products (Phase 5)
+	MUST be validated per yarn item — validating the SUM lets one color
+	cover another color's shortage.
+	"""
+	bom = get_bom_for_item(weaved_item)
+	if not bom:
+		return {}
+	bom_qty = flt(frappe.db.get_value("BOM", bom, "quantity")) or 1
+	out = {}
+	for r in frappe.get_all("BOM Item", filters={"parent": bom},
+	                        fields=["item_code", "stock_qty"]):
+		out[r.item_code] = out.get(r.item_code, 0) + \
+			flt(r.stock_qty) / bom_qty * flt(pcs)
+	return out
 
 
 def customers_for_supplier(supplier):
@@ -96,6 +123,238 @@ def customers_for_supplier(supplier):
 	return list(names)
 
 
+def dyed_available_map(root_lot, supplier):
+	"""PER dyed-yarn-item availability of one lot with one weaver.
+
+	{item_code: {"sold": kg, "consumed": kg, "available": kg}}
+
+	sold     = DY-batch kg issued to the weaver's customer record (DN/SI)
+	consumed = Lot Consumption rows on submitted PRs of this supplier,
+	           plus BOM equivalents of legacy weaving PRs without the table.
+	"""
+	customers = customers_for_supplier(supplier)
+	if not customers:
+		return {}
+
+	sold_rows = frappe.db.sql("""
+		SELECT b.item, SUM(ABS(sle.actual_qty)) AS qty
+		FROM `tabStock Ledger Entry` sle
+		JOIN `tabBatch` b ON b.name = sle.batch_no
+		LEFT JOIN `tabDelivery Note` dn ON (
+			sle.voucher_type = 'Delivery Note' AND sle.voucher_no = dn.name)
+		LEFT JOIN `tabSales Invoice` si ON (
+			sle.voucher_type = 'Sales Invoice' AND sle.voucher_no = si.name)
+		WHERE b.root_lot = %s AND b.process_stage = 'DY'
+		  AND sle.actual_qty < 0 AND sle.is_cancelled = 0
+		  AND sle.voucher_type IN ('Delivery Note', 'Sales Invoice')
+		  AND COALESCE(dn.customer, si.customer) IN ({})
+		GROUP BY b.item
+	""".format(", ".join(["%s"] * len(customers))),
+		tuple([root_lot] + customers), as_dict=True)
+
+	m = {r.item: {"sold": flt(r.qty), "consumed": 0.0} for r in sold_rows}
+	if not m:
+		return {}
+	total_sold = sum(v["sold"] for v in m.values())
+	unmatched = 0.0  # consumption we cannot pin to one item
+
+	# consumed via Lot Consumption rows (submitted PRs of this supplier)
+	for r in frappe.db.sql("""
+		SELECT lcd.dyed_yarn_item AS item, SUM(lcd.qty_kg) AS kg
+		FROM `tabLot Consumption Detail` lcd
+		JOIN `tabPurchase Receipt` pr ON pr.name = lcd.parent
+			AND lcd.parenttype = 'Purchase Receipt'
+		WHERE lcd.root_lot = %s AND pr.supplier = %s AND pr.docstatus = 1
+		GROUP BY lcd.dyed_yarn_item
+	""", (root_lot, supplier), as_dict=True):
+		if r.item and r.item in m:
+			m[r.item]["consumed"] += flt(r.kg)
+		else:
+			unmatched += flt(r.kg)
+
+	# legacy single-lot weaving PRs (no Lot Consumption table): BOM equivalent
+	legacy = frappe.db.sql("""
+		SELECT pri.item_code, SUM(pri.stock_qty) AS qty
+		FROM `tabPurchase Receipt Item` pri
+		JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+		WHERE pri.root_lot = %s AND pr.supplier = %s
+		  AND pr.docstatus = 1 AND pr.is_return = 0
+		  AND NOT EXISTS (
+			SELECT 1 FROM `tabLot Consumption Detail` lcd
+			WHERE lcd.parent = pr.name AND lcd.parenttype = 'Purchase Receipt')
+		GROUP BY pri.item_code
+	""", (root_lot, supplier), as_dict=True)
+	for r in legacy:
+		reqs = dyed_requirements_from_bom(r.item_code, r.qty)
+		matched = {i: kg for i, kg in reqs.items() if i in m}
+		if matched:
+			for i, kg in matched.items():
+				m[i]["consumed"] += kg
+		else:
+			unmatched += flt(r.qty) * yarn_per_unit_from_bom(r.item_code)
+
+	# distribute unmatched consumption proportionally to sold kg
+	if unmatched > EPS and total_sold > EPS:
+		for v in m.values():
+			v["consumed"] += unmatched * v["sold"] / total_sold
+
+	for v in m.values():
+		v["sold"] = round(v["sold"], 2)
+		v["consumed"] = round(v["consumed"], 2)
+		v["available"] = round(v["sold"] - v["consumed"], 2)
+	return m
+
+
+def weaving_tolerance_pct():
+	"""Allowed % over/under the BOM consumption (Lot Trace Settings
+	`weaving_tolerance_pct` when present, else 2%)."""
+	try:
+		settings = frappe.get_cached_doc("Lot Trace Settings")
+		return flt(settings.get("weaving_tolerance_pct")) or 2.0
+	except Exception:
+		return 2.0
+
+
+def allocate_weaving_consumption(supplier, weaved_item, pcs, lots):
+	"""AUTO lot-consumption (Phase 5): the user never types consumed kg.
+
+	For every yarn item in the weaved item's BOM the requirement is
+	pcs x kg-per-pc; it is allocated lot-by-lot (in the given order,
+	primary first) from each lot's per-item availability with this weaver.
+
+	Returns {"requirements", "allocations", "shortages"}.
+	- allocations: [{root_lot, dyed_yarn_item, qty_kg, available_kg}]
+	- shortages:   [{item, need_kg, short_kg}] beyond the tolerance
+	Empty allocations mean the BOM items don't match any dyed yarn sold to
+	this weaver (caller should fall back to the aggregate check).
+	"""
+	reqs = dyed_requirements_from_bom(weaved_item, pcs)
+	if not reqs:
+		return {"requirements": {}, "allocations": [], "shortages": []}
+
+	avail = {lot: dyed_available_map(lot, supplier) for lot in lots}
+	tol_pct = weaving_tolerance_pct()
+
+	allocations, shortages = [], []
+	for item, need in reqs.items():
+		if not any(item in avail[lot] for lot in lots):
+			continue  # BOM row is not a dyed yarn with this weaver (skip)
+		remaining = flt(need)
+		for lot in lots:
+			a = avail[lot].get(item)
+			if not a:
+				continue
+			free = flt(a["available"]) - flt(a.get("_alloc", 0))
+			take = min(remaining, max(free, 0))
+			if take > EPS:
+				allocations.append({
+					"root_lot": lot,
+					"dyed_yarn_item": item,
+					"qty_kg": round(take, 2),
+					"available_kg": round(free, 2),
+				})
+				a["_alloc"] = flt(a.get("_alloc", 0)) + take
+				remaining -= take
+			if remaining <= EPS:
+				break
+		tol = max(0.5, flt(need) * tol_pct / 100)
+		if remaining > tol:
+			shortages.append({
+				"item": item,
+				"need_kg": round(flt(need), 2),
+				"short_kg": round(remaining, 2),
+			})
+
+	return {
+		"requirements": {i: round(flt(k), 2) for i, k in reqs.items()},
+		"allocations": allocations,
+		"shortages": shortages,
+	}
+
+
+@frappe.whitelist()
+def suggest_lot_consumption(supplier, weaved_item, qty, primary_lot,
+                            extra_lots=None):
+	"""For the PR form's 'Auto-Fill Lot Consumption' button."""
+	frappe.has_permission("Root Lot", "read", throw=True)
+	import json
+	lots = [primary_lot]
+	if extra_lots:
+		if isinstance(extra_lots, str):
+			extra_lots = json.loads(extra_lots)
+		for l in extra_lots:
+			if l and l not in lots:
+				lots.append(l)
+	return allocate_weaving_consumption(supplier, weaved_item, flt(qty), lots)
+
+
+@frappe.whitelist()
+def get_dyed_available(root_lot, supplier, dyed_item=None):
+	"""Dyed yarn of one lot still available with one weaver (supplier).
+
+	Returns per-item availability plus the totals. `item`/`available_kg`
+	refer to `dyed_item` when given, else to the lot's single dyed item
+	(when it has exactly one), else to the totals.
+	"""
+	frappe.has_permission("Root Lot", "read", throw=True)
+	m = dyed_available_map(root_lot, supplier)
+	total_sold = round(sum(v["sold"] for v in m.values()), 2)
+	total_consumed = round(sum(v["consumed"] for v in m.values()), 2)
+	total_available = round(sum(v["available"] for v in m.values()), 2)
+
+	item = None
+	available = total_available
+	sold, consumed = total_sold, total_consumed
+	if dyed_item and dyed_item in m:
+		item = dyed_item
+		sold = m[dyed_item]["sold"]
+		consumed = m[dyed_item]["consumed"]
+		available = m[dyed_item]["available"]
+	elif len(m) == 1:
+		item = list(m.keys())[0]
+		sold = m[item]["sold"]
+		consumed = m[item]["consumed"]
+		available = m[item]["available"]
+
+	return {
+		"item": item,
+		"sold_kg": sold,
+		"consumed_kg": consumed,
+		"available_kg": available,
+		"items": m,
+		"total_available_kg": total_available,
+	}
+
+
+def remaining_yarn_kg(root_lot):
+	"""Yarn (kg) still unconverted for this lot:
+	NT + DY stock balances PLUS dyed yarn lying with weavers
+	(sold - BOM-consumed). Drives the effective status."""
+	stock = frappe.db.sql("""
+		SELECT COALESCE(SUM(sle.actual_qty), 0)
+		FROM `tabStock Ledger Entry` sle
+		JOIN `tabBatch` b ON b.name = sle.batch_no
+		WHERE b.root_lot = %s AND sle.is_cancelled = 0
+		  AND b.process_stage IN ('NT', 'DY')
+	""", root_lot)
+	remaining = flt(stock[0][0] if stock else 0)
+	for r in at_weaver_balance(root_lot=root_lot):
+		remaining += max(flt(r["balance_at_weaver_kg"]), 0)
+	return round(remaining, 2)
+
+
+def effective_status(root_lot, stored_status, received_qty=0):
+	"""'Completed' means the FG CHAIN closed — but a lot with significant
+	yarn still unconverted (in stock or at a weaver) is really In Process.
+	Threshold: 10 kg or 0.5% of the received qty, whichever is larger."""
+	if stored_status != "Completed":
+		return stored_status
+	threshold = max(10.0, flt(received_qty) * 0.005)
+	if remaining_yarn_kg(root_lot) > threshold:
+		return "In Process"
+	return "Completed"
+
+
 @frappe.whitelist()
 def at_weaver_balance(weaver=None, root_lot=None):
 	"""Dyed yarn lying at each weaver, per lot per weaver.
@@ -107,8 +366,7 @@ def at_weaver_balance(weaver=None, root_lot=None):
 	  balance_at_weaver_kg- dyed_yarn_sold_kg - consumed_equiv_kg
 
 	`weaver` filter accepts a SUPPLIER name; sold rows carry CUSTOMER names,
-	so the filter is resolved through customers_for_supplier() (fixes the
-	filter never matching).
+	so the filter is resolved through customers_for_supplier().
 	"""
 	frappe.has_permission("Root Lot", "read", throw=True)
 	sold = frappe.db.sql("""
@@ -132,7 +390,6 @@ def at_weaver_balance(weaver=None, root_lot=None):
 	""", {"root_lot": root_lot} if root_lot else {}, as_dict=True)
 
 	# resolve the supplier-typed filter to the matching customer names.
-	# Also accept a customer name typed directly (backward compatible).
 	allowed_customers = None
 	if weaver:
 		allowed_customers = set(customers_for_supplier(weaver))
@@ -143,7 +400,6 @@ def at_weaver_balance(weaver=None, root_lot=None):
 		weaver_name = s.weaver
 		if allowed_customers is not None and weaver_name not in allowed_customers:
 			continue
-		# weaver as supplier (weaved pcs come back on a Purchase Receipt).
 		# reverse-resolve: which supplier does this customer represent?
 		weaver_supplier = (frappe.db.get_value(
 			"Customer", weaver_name, "represents_supplier")
@@ -172,74 +428,6 @@ def at_weaver_balance(weaver=None, root_lot=None):
 			"balance_at_weaver_kg": round(balance, 2),
 		})
 	return result
-
-
-@frappe.whitelist()
-def get_dyed_available(root_lot, supplier):
-	"""Dyed yarn of one lot still available with one weaver (supplier).
-
-	available = dyed kg sold to the weaver's customer record
-	          - kg already consumed by weaved pcs receipts (BOM equivalent
-	            for single-lot PRs; Lot Consumption rows for multi-lot PRs).
-	Used by the Purchase Receipt form to show live availability in the
-	Lot Consumption (multi-lot weaving) table.
-	"""
-	frappe.has_permission("Root Lot", "read", throw=True)
-	customers = customers_for_supplier(supplier)
-	if not customers:
-		return {"item": None, "sold_kg": 0, "consumed_kg": 0, "available_kg": 0}
-
-	sold = frappe.db.sql("""
-		SELECT SUM(ABS(sle.actual_qty)) AS sold
-		FROM `tabStock Ledger Entry` sle
-		JOIN `tabBatch` b ON b.name = sle.batch_no
-		LEFT JOIN `tabDelivery Note` dn ON (
-			sle.voucher_type = 'Delivery Note' AND sle.voucher_no = dn.name)
-		LEFT JOIN `tabSales Invoice` si ON (
-			sle.voucher_type = 'Sales Invoice' AND sle.voucher_no = si.name)
-		WHERE b.root_lot = %s AND b.process_stage = 'DY'
-		  AND sle.actual_qty < 0 AND sle.is_cancelled = 0
-		  AND sle.voucher_type IN ('Delivery Note', 'Sales Invoice')
-		  AND COALESCE(dn.customer, si.customer) IN ({})
-	""".format(", ".join(["%s"] * len(customers))),
-		tuple([root_lot] + customers), as_dict=True)
-	sold_kg = flt(sold[0].sold if sold and sold[0].sold else 0)
-
-	# consumed via multi-lot weaving (Lot Consumption rows on submitted PRs)
-	multi = frappe.db.sql("""
-		SELECT SUM(lcd.qty_kg) AS kg
-		FROM `tabLot Consumption Detail` lcd
-		JOIN `tabPurchase Receipt` pr ON pr.name = lcd.parent
-			AND lcd.parenttype = 'Purchase Receipt'
-		WHERE lcd.root_lot = %s AND pr.supplier = %s AND pr.docstatus = 1
-	""", (root_lot, supplier), as_dict=True)
-	consumed_kg = flt(multi[0].kg if multi and multi[0].kg else 0)
-
-	# consumed via single-lot weaving PRs (no Lot Consumption table):
-	# BOM equivalent of the pcs received on those PRs
-	single_rows = frappe.db.sql("""
-		SELECT pri.item_code, SUM(pri.stock_qty) AS qty
-		FROM `tabPurchase Receipt Item` pri
-		JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
-		WHERE pri.root_lot = %s AND pr.supplier = %s
-		  AND pr.docstatus = 1 AND pr.is_return = 0
-		  AND NOT EXISTS (
-			SELECT 1 FROM `tabLot Consumption Detail` lcd
-			WHERE lcd.parent = pr.name AND lcd.parenttype = 'Purchase Receipt')
-		GROUP BY pri.item_code
-	""", (root_lot, supplier), as_dict=True)
-	for r in single_rows:
-		consumed_kg += flt(r.qty) * yarn_per_unit_from_bom(r.item_code)
-
-	dy_item = frappe.db.get_value(
-		"Batch", {"root_lot": root_lot, "process_stage": "DY"}, "item")
-
-	return {
-		"item": dy_item,
-		"sold_kg": round(sold_kg, 2),
-		"consumed_kg": round(consumed_kg, 2),
-		"available_kg": round(sold_kg - consumed_kg, 2),
-	}
 
 
 @frappe.whitelist()

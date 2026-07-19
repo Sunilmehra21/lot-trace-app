@@ -1,345 +1,265 @@
-# Purchase Receipt:
-#  A) greige yarn / fabric from supplier -> LOT BIRTH: Root Lot + first-stage batch
-#     (first stage = the lot route's first stage; NT when no route — so a
-#     product can start directly with FABRIC by giving its route a first
-#     stage other than NT)
-#  B) weaved pcs from weaver             -> BRIDGE: root_lot mandatory on row -> '-WV' batch
+# -*- coding: utf-8 -*-
+# Phase 6 — Purchase Receipt handler (greige yarn intake + weaving FG).
+#
+# On submit of a Purchase Receipt:
+#   * Greige yarn rows  -> create/reuse ONE Root Lot for the production run,
+#                          create per-item NT batches, record Lot Receipts.
+#   * Weaving FG rows   -> resolve the lot from the dyed yarn at the weaver,
+#                          create the WV batch, validate BOM consumption.
+#
+# We only set row.batch_no and create Root Lot / Batch docs. Stock, SLE and
+# valuation are left entirely to standard ERPNext (user requirement #4).
 
 import frappe
-from frappe import _
 from frappe.utils import flt
-from lot_trace.events.common import (
-    create_stage_batch, find_naming_rule, first_stage_for_rule,
-    log_exception, make_lot_code)
 
-WEAVE_STAGE = "WV"
-
-
-def before_submit(doc, method=None):
-    """Validate and auto-populate batch_no for each item row."""
-    if doc.is_return:
-        return
-
-    for row in doc.items:
-        if row.get("batch_no"):
-            continue
-
-        # B) weaved pcs bridge ────────────────────────────────────────
-        if is_weaving_row(row):
-            if not row.get("root_lot"):
-                frappe.throw(_(
-                    "Row {0} ({1}): Root Lot is mandatory for weaved pcs receipts. "
-                    "Select which lot's dyed yarn these pieces were woven from."
-                ).format(row.idx, row.item_code))
-
-            # Validate: weaving qty makes sense given the dyed yarn sold to this weaver
-            validate_lot_reached_weaver(row.root_lot, row.idx)
-
-            # CASE 2 — multi-lot weaving: if the Lot Consumption table is
-            # filled, pcs were woven from dyed yarn of SEVERAL root lots.
-            if not handle_multi_lot_weaving(doc, row):
-                # single-lot path (default)
-                validate_weaving_qty_vs_dyed(
-                    root_lot=row.root_lot,
-                    weaving_qty=row.qty,
-                    weaving_item=row.item_code,
-                    supplier=doc.supplier
-                )
-
-            # Create or link to the -WV (weaving) batch (under the PRIMARY lot)
-            row.batch_no = create_stage_batch(row.root_lot, WEAVE_STAGE, row.item_code)
-            continue
-
-        # A) lot birth ────────────────────────────────────────────────
-        # New material receipt from supplier: create Root Lot + first-stage
-        # batch. The first stage comes from the rule's Lot Route (NT default;
-        # a fabric-first product routes e.g. WV → CT → … and births at WV).
-        rule = find_naming_rule(yarn_item=row.item_code)
-        if not rule:
-            continue  # not a traced item (no naming rule found)
-
-        first_stage = first_stage_for_rule(rule)
-        lot_code = make_lot_code(rule, doc.posting_date)
-        create_root_lot(doc, row, rule, lot_code, first_stage)
-        row.batch_no = create_stage_batch(lot_code, first_stage, row.item_code)
-        row.root_lot = lot_code
-
-
-def is_weaving_row(row):
-    """Check if this PR row is a weaving pcs receipt (not a yarn receipt)."""
-    if not row.get("purchase_order"):
-        return False
-    po_lot_stage = frappe.db.get_value(
-        "Purchase Order", row.purchase_order, "lot_stage")
-    return po_lot_stage == WEAVE_STAGE
-
-
-def validate_lot_reached_weaver(root_lot, idx):
-    """Validate that the root lot exists and has a DY (dyed yarn) batch."""
-    if not frappe.db.exists("Root Lot", root_lot):
-        frappe.throw(_(
-            "Row {0}: Root Lot {1} does not exist"
-        ).format(idx, root_lot))
-
-    # Check: DY batch exists (dyed yarn was received for this lot)
-    dy_batch = frappe.db.get_value(
-        "Batch", {"root_lot": root_lot, "process_stage": "DY"})
-
-    if not dy_batch:
-        frappe.throw(_(
-            "Row {0}: Root Lot {1} has no dyed-yarn (DY) batch yet. "
-            "Dyed yarn must be received before weaving pcs can be traced."
-        ).format(idx, root_lot))
-
-
-def dyed_kg_sold_to_weaver(root_lot, supplier):
-    """Total dyed yarn (kg) of this lot sold/issued to this weaver.
-
-    Weaver duality: the DN/SI customer may be a different record than the
-    PR supplier — resolved via Customer.represents_supplier + same name.
-    """
-    from lot_trace.api.lot import customers_for_supplier
-    customers = customers_for_supplier(supplier) or [supplier]
-    sold_qty = frappe.db.sql(
-        """
-        SELECT SUM(ABS(sle.actual_qty)) AS sold
-        FROM `tabStock Ledger Entry` sle
-        JOIN `tabBatch` b ON b.name = sle.batch_no
-        LEFT JOIN `tabDelivery Note` dn ON (
-            sle.voucher_type = 'Delivery Note' AND sle.voucher_no = dn.name)
-        LEFT JOIN `tabSales Invoice` si ON (
-            sle.voucher_type = 'Sales Invoice' AND sle.voucher_no = si.name)
-        WHERE b.root_lot = %s
-          AND b.process_stage = 'DY'
-          AND sle.actual_qty < 0
-          AND sle.voucher_type IN ('Delivery Note', 'Sales Invoice')
-          AND COALESCE(dn.customer, si.customer) IN ({})
-          AND sle.is_cancelled = 0
-        """.format(", ".join(["%s"] * len(customers))),
-        tuple([root_lot] + customers), as_dict=True)
-    return flt(sold_qty[0].sold if sold_qty and sold_qty[0].sold else 0)
-
-
-def handle_multi_lot_weaving(doc, row):
-    """CASE 2: weaved pcs consumed dyed yarn from MULTIPLE root lots.
-
-    The 'Lot Consumption' table on the Purchase Receipt lists every source
-    lot with the kg consumed. The item row's root_lot is the PRIMARY lot
-    (drives the -WV batch and the FG lot number). Secondary lots get an
-    audit trail ("merged into" comment + Lot Exception).
-
-    Returns True when the multi-lot path handled validation, False when the
-    table is empty (caller falls back to the single-lot validation).
-    """
-    from lot_trace.api.lot import yarn_per_unit_from_bom
-
-    entries = doc.get("lot_consumption") or []
-    if not entries:
-        return False
-
-    primary = row.root_lot
-    lots_in_table = [e.root_lot for e in entries]
-
-    if primary not in lots_in_table:
-        frappe.throw(_(
-            "Lot Consumption table must include the primary Root Lot {0} "
-            "(the one selected on the item row)."
-        ).format(primary))
-
-    # every lot must exist and have reached the weaver (DY batch present)
-    for e in entries:
-        validate_lot_reached_weaver(e.root_lot, row.idx)
-        if flt(e.qty_kg) <= 0:
-            frappe.throw(_(
-                "Lot Consumption: Qty (Kg) must be positive for lot {0}."
-            ).format(e.root_lot))
-
-    # total consumed kg should match the BOM requirement for the pcs received
-    total_kg = sum(flt(e.qty_kg) for e in entries)
-    kg_per_pc = yarn_per_unit_from_bom(row.item_code, dyed_yarn_item=None)
-    if kg_per_pc and kg_per_pc > 0:
-        expected_kg = flt(row.qty) * kg_per_pc
-        tolerance = max(0.5, expected_kg * 0.02)  # 2% or 0.5 kg
-        if abs(total_kg - expected_kg) > tolerance:
-            frappe.throw(_(
-                "Lot Consumption total ({0} kg) does not match the BOM "
-                "requirement for {1} pcs (~{2} kg). Correct the table or the "
-                "received qty."
-            ).format(round(total_kg, 2), row.qty, round(expected_kg, 2)))
-
-    # each lot: consumed kg must not exceed dyed yarn STILL AVAILABLE with
-    # this weaver (sold minus already consumed by earlier weaving PRs)
-    from lot_trace.api.lot import get_dyed_available
-    for e in entries:
-        avail = get_dyed_available(e.root_lot, doc.supplier)
-        if flt(e.qty_kg) > flt(avail["available_kg"]) + 0.1:
-            frappe.throw(_(
-                "Lot Consumption: lot {0} claims {1} kg consumed, but only "
-                "{2} kg dyed yarn is still available with weaver {3} "
-                "(sold {4} kg, already consumed {5} kg)."
-            ).format(e.root_lot, round(flt(e.qty_kg), 2),
-                     avail["available_kg"], doc.supplier,
-                     avail["sold_kg"], avail["consumed_kg"]))
-
-    # audit trail for the merge (secondary lots)
-    for e in entries:
-        if e.root_lot == primary:
-            continue
-        log_exception(
-            exception_type="Lot Merge",
-            severity="Warning",
-            root_lot=e.root_lot,
-            erp_doc_type=doc.doctype,
-            erp_doc_name=doc.name,
-            message=_("{0} kg dyed yarn of lot {1} consumed into weaving of "
-                      "primary lot {2} (weaver {3}).")
-            .format(round(flt(e.qty_kg), 2), e.root_lot, primary, doc.supplier))
-        try:
-            frappe.get_doc("Root Lot", e.root_lot).add_comment(
-                "Comment",
-                _("Merged: {0} kg dyed yarn consumed into lot {1} via {2}")
-                .format(round(flt(e.qty_kg), 2), primary, doc.name))
-        except Exception:
-            pass
-
-    return True
-
-
-def validate_weaving_qty_vs_dyed(root_lot, weaving_qty, weaving_item, supplier):
-    """
-    Validate: weaving pcs qty makes sense given the dyed yarn sold to THIS weaver.
-
-    Example:
-    - Sold 400 kg dyed yarn to Weaver A
-    - BOM: 0.5 kg per pc
-    - Weaver A can only produce max 800 pcs (400 / 0.5)
-    - If PR shows 900 pcs → throw error
-    """
-    from lot_trace.api.lot import yarn_per_unit_from_bom
-
-    # Get BOM conversion: kg of yarn per 1 unit of weaving item
-    kg_per_pc = yarn_per_unit_from_bom(weaving_item, dyed_yarn_item=None)
-    if not kg_per_pc or kg_per_pc <= 0:
-        # No BOM defined or no conversion found — skip validation
-        return
-
-    # Calculate: how much dyed yarn this many pcs would consume
-    expected_kg = flt(weaving_qty) * kg_per_pc
-
-    available_kg = dyed_kg_sold_to_weaver(root_lot, supplier)
-
-    # Check: required kg <= available kg (with 0.1 kg tolerance for rounding)
-    if expected_kg > available_kg + 0.1:
-        frappe.throw(_(
-            "Weaving pcs qty ({pcs}) requires ~{need} kg dyed yarn per BOM, "
-            "but only {avail} kg was sold to weaver {weaver} under lot {lot}. "
-            "Either reduce pcs qty or check the BOM yield (kg per pc)."
-        ).format(
-            pcs=round(weaving_qty, 2),
-            need=round(expected_kg, 2),
-            avail=round(available_kg, 2),
-            weaver=supplier,
-            lot=root_lot
-        ))
-
-
-def create_root_lot(doc, row, rule, lot_code, first_stage="NT"):
-    """Create a new Root Lot record (lot birth from a material receipt)."""
-    lot = frappe.new_doc("Root Lot")
-    lot.update({
-        "lot_code": lot_code,
-        "product": rule.product,
-        "yarn_item": row.item_code,
-        "sales_order": rule.get("sales_order"),
-        "supplier": doc.supplier,
-        "supplier_invoice": doc.get("supplier_delivery_note") or doc.get("bill_no"),
-        "purchase_receipt": doc.name,
-        "received_qty": flt(row.qty),
-        "uom": row.uom,
-        "current_stage": first_stage,
-        "status": "Open",
-        # per-product stage sequence, copied from the naming rule at birth
-        "route": rule.get("route"),
-    })
-    lot.flags.ignore_permissions = True
-    lot.insert()
-
-
-def on_submit(doc, method=None):
-    """Handle submission: reflect purchase returns on Root Lot received qty."""
-    if not doc.is_return:
-        # Not a return — no special handling needed
-        return
-
-    # This is a purchase return of yarn: reduce Root Lot received qty
-    for row in doc.items:
-        rl = row.get("root_lot") or frappe.db.get_value(
-            "Batch", row.get("batch_no"), "root_lot")
-
-        if not rl:
-            continue
-
-        # Reduce the received qty by the return amount
-        current_received = flt(frappe.db.get_value("Root Lot", rl, "received_qty"))
-        return_qty = abs(flt(row.qty))
-
-        frappe.db.set_value(
-            "Root Lot", rl, "received_qty",
-            current_received - return_qty,
-            update_modified=False)
+from lot_trace.events import resolver
+from lot_trace.events.lot_factory import (
+    create_root_lot,
+    ensure_batch,
+    record_lot_receipt,
+)
 
 
 def on_cancel(doc, method=None):
-    """Handle cancellation: cleanup Root Lot & batches if safe, else log exception."""
-    if doc.is_return:
-        # Cancelled return — no special handling
-        return
+    """Roll back Lot Receipts recorded by this PR. Batches/lots are kept
+    (they may hold stock from other vouchers); we only remove our receipt rows
+    and re-open intake if needed."""
+    for row in doc.items:
+        rl = frappe.db.get_value("Batch", row.get("batch_no"), "custom_root_lot") \
+            if row.get("batch_no") else None
+        if not rl:
+            continue
+        lot = frappe.get_doc("Root Lot", rl)
+        kept = [r for r in lot.get("lot_receipts", []) if r.source_doc != doc.name]
+        if len(kept) != len(lot.get("lot_receipts", [])):
+            lot.set("lot_receipts", kept)
+            lot.intake_complete = 0
+            lot.save(ignore_permissions=True)
 
-    from lot_trace.events.common import first_stage_of_lot
+
+def before_submit(doc, method=None):
+    """Assign batch numbers and stage lot decisions before stock posts."""
+    greige_rows = []
+    weave_rows = []
 
     for row in doc.items:
-        rl = row.get("root_lot")
-        if not rl or not frappe.db.exists("Root Lot", rl):
+        profile, trace = resolver.resolve_profile_for_item(row.item_code)
+        if profile:
+            greige_rows.append((row, profile, trace))
             continue
+        # Is this a finished good with a profile (weaving output)?
+        if _is_weaving_output(row.item_code):
+            weave_rows.append(row)
 
-        # Only process if this PR created this Root Lot
-        if frappe.db.get_value("Root Lot", rl, "purchase_receipt") != doc.name:
-            continue
+    if greige_rows:
+        _handle_greige_intake(doc, greige_rows)
+    for row in weave_rows:
+        _handle_weaving_row(doc, row)
 
-        birth_stage = first_stage_of_lot(rl)
 
-        # Check: does this lot have downstream batches beyond its birth stage?
-        other_batches = frappe.get_all(
-            "Batch",
-            filters={"root_lot": rl, "process_stage": ["!=", birth_stage]},
-            pluck="name")
+# ---------------------------------------------------------------------------
+# Greige intake
+# ---------------------------------------------------------------------------
 
-        if other_batches:
-            # Lot has moved downstream — block cancel and log exception
-            log_exception(
-                exception_type="Cancel With Downstream",
-                severity="Error",
-                root_lot=rl,
-                erp_doc_type=doc.doctype,
-                erp_doc_name=doc.name,
-                message=_("PR cancelled but lot {0} already has downstream "
-                          "batches: {1}").format(rl, ", ".join(other_batches)))
-            continue
+def _handle_greige_intake(doc, greige_rows):
+    """Create/reuse ONE lot per (profile, production run) and NT batches.
 
-        # Lot is still at its birth stage and untouched — safe to cleanup
-        birth_suffix = frappe.db.get_value(
-            "Lot Process Stage", birth_stage, "batch_suffix") or birth_stage
-        birth_batch = f"{rl}-{birth_suffix}"
-        sle_count = frappe.db.count(
-            "Stock Ledger Entry",
-            {"batch_no": birth_batch, "is_cancelled": 0})
+    Multiple rows of the SAME profile in one PR share one lot. The primary
+    yarn (if present) opens/creates the lot; secondaries attach.
+    """
+    po_root_lot = _po_root_lot(doc)
 
-        if sle_count == 0:
-            # No stock ledger entries — clean deletion
-            frappe.delete_doc("Batch", birth_batch, ignore_permissions=True, force=True)
-            frappe.delete_doc("Root Lot", rl, ignore_permissions=True, force=True)
+    # Group rows by profile so a single multi-item PR maps cleanly.
+    by_profile = {}
+    for row, profile, trace in greige_rows:
+        by_profile.setdefault(profile, []).append((row, trace))
+
+    for profile, rows in by_profile.items():
+        # Does this PR contain the primary yarn? Then this is a NEW run.
+        primary_present = any(t.role == "Primary" for _r, t in rows)
+
+        if primary_present:
+            root_lot = create_root_lot(profile, po_root_lot=po_root_lot)
         else:
-            # Stock has been moved — mark as Short Closed
-            frappe.db.set_value(
-                "Root Lot", rl, "status", "Short Closed",
-                update_modified=False)
+            root_lot = _resolve_secondary_only_lot(profile, rows, po_root_lot, doc)
+
+        for row, trace in rows:
+            _attach_nt_batch(doc, row, profile, root_lot, trace)
+
+
+def _resolve_secondary_only_lot(profile, rows, po_root_lot, doc):
+    """PR has only secondary yarn(s) of this profile. Attach to an open lot."""
+    # Use the first row to probe; all secondaries here go to the same run
+    # (same PR = same delivery). Resolve once, reuse for all.
+    first_item = rows[0][0].item_code
+    decision = resolver.resolve_open_lot(first_item, po_root_lot=po_root_lot)
+
+    if decision["action"] == "reuse":
+        if decision["ambiguous"]:
+            frappe.throw(
+                f"Multiple open lots of {profile} were opened the same day and "
+                f"are waiting for {first_item}. Set the Root Lot on the linked "
+                f"Purchase Order, or receive against a specific lot. "
+                f"Candidates: {', '.join(decision['candidates'])}"
+            )
+        return decision["root_lot"]
+
+    # action == 'hold' -> secondary arrived before its primary.
+    frappe.throw(
+        f"{first_item} is a secondary yarn for {profile}, but no open production "
+        f"lot is waiting for it. Receive the primary yarn first, or link this "
+        f"receipt to an existing Purchase Order that carries the Root Lot."
+    )
+
+
+def _attach_nt_batch(doc, row, profile, root_lot, trace):
+    lot_code = frappe.db.get_value("Root Lot", root_lot, "lot_code") or root_lot
+    batch_name = resolver.render_batch_name(profile, lot_code, "NT", trace)
+    ensure_batch(batch_name, row.item_code, root_lot, stage="NT")
+    row.batch_no = batch_name
+    record_lot_receipt(
+        root_lot=root_lot,
+        yarn_item=row.item_code,
+        item_abbr=trace.item_abbr,
+        nt_batch=batch_name,
+        received_kg=flt(row.qty),
+        source_doctype=doc.doctype,
+        source_doc=doc.name,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Weaving output
+# ---------------------------------------------------------------------------
+
+def _is_weaving_output(item_code):
+    """True if item is a finished product that has a Lot Trace Profile."""
+    return bool(
+        frappe.db.exists("Lot Trace Profile", {"product": item_code, "active": 1})
+    )
+
+
+def _handle_weaving_row(doc, row):
+    """Resolve the lot whose dyed yarn is at this weaver, create WV batch."""
+    profile = frappe.db.get_value(
+        "Lot Trace Profile", {"product": row.item_code, "active": 1}, "name"
+    )
+    root_lot = _lot_at_supplier(profile, doc.supplier)
+    if not root_lot:
+        frappe.throw(
+            f"Could not resolve which production lot's dyed yarn is with "
+            f"weaver {doc.supplier} for {row.item_code}. Set the Root Lot "
+            f"manually on this row."
+        )
+    lot_code = frappe.db.get_value("Root Lot", root_lot, "lot_code") or root_lot
+    batch_name = resolver.render_batch_name(profile, lot_code, "WV")
+    ensure_batch(batch_name, row.item_code, root_lot, stage="WV")
+    row.batch_no = batch_name
+
+    _validate_weaving_consumption(profile, root_lot, doc.supplier, flt(row.qty))
+    frappe.db.set_value("Root Lot", root_lot, "current_stage", "WV")
+
+
+def _lot_at_supplier(profile, supplier):
+    """Find the open lot of this profile whose dyed batches are stocked at the
+    supplier's (weaver's) warehouse. FIFO if more than one."""
+    open_lots = frappe.get_all(
+        "Root Lot",
+        filters={"profile": profile, "intake_complete": 1, "current_stage": ["in", ["DY", "NT"]]},
+        fields=["name"],
+        order_by="creation asc",
+    )
+    supplier_wh = _supplier_warehouse(supplier)
+    for lot in open_lots:
+        dy_batches = frappe.get_all(
+            "Batch", filters={"custom_root_lot": lot.name, "custom_stage": "DY"},
+            fields=["name"],
+        )
+        for b in dy_batches:
+            bal = _batch_balance_in_wh(b.name, supplier_wh)
+            if bal > 0.001:
+                return lot.name
+    # Fallback: single open lot at DY stage
+    if len(open_lots) == 1:
+        return open_lots[0].name
+    return None
+
+
+def _validate_weaving_consumption(profile, root_lot, supplier, pcs):
+    """Informational BOM check per yarn item; warn (not block) beyond tolerance.
+
+    We never alter stock — standard ERP subcontracting consumes the yarn.
+    This only flags a discrepancy for the user to review.
+    """
+    tol = flt(frappe.db.get_value("Lot Trace Profile", profile, "weaving_tolerance_pct")) or 2.0
+    trace_items = frappe.get_all(
+        "Lot Trace Item", filters={"parent": profile},
+        fields=["yarn_item", "item_abbr", "bom_kg_per_pc"],
+    )
+    supplier_wh = _supplier_warehouse(supplier)
+    messages = []
+    for ti in trace_items:
+        expected = flt(ti.bom_kg_per_pc) * flt(pcs)
+        if expected <= 0:
+            continue
+        available = _yarn_available_for_lot(root_lot, ti.yarn_item, supplier_wh)
+        if available + (expected * tol / 100.0) + 0.5 < expected:
+            messages.append(
+                f"  {ti.yarn_item}: needs ~{expected:.1f} kg, only {available:.1f} kg "
+                f"of this lot at weaver"
+            )
+    if messages:
+        frappe.msgprint(
+            "Weaving consumption check (informational):\n" + "\n".join(messages),
+            title="Yarn shortfall vs BOM", indicator="orange",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Small stock READ helpers (never write)
+# ---------------------------------------------------------------------------
+
+def _po_root_lot(doc):
+    """If PR rows link to a PO carrying a Root Lot, return it."""
+    for row in doc.items:
+        po = row.get("purchase_order")
+        if po:
+            rl = frappe.db.get_value("Purchase Order", po, "custom_root_lot")
+            if rl:
+                return rl
+    return None
+
+
+def _supplier_warehouse(supplier):
+    return frappe.db.get_value(
+        "Warehouse", {"custom_supplier": supplier, "is_group": 0}, "name"
+    ) or frappe.db.get_value(
+        "Warehouse", {"warehouse_name": ["like", f"%{supplier}%"]}, "name"
+    )
+
+
+def _batch_balance_in_wh(batch_no, warehouse):
+    if not warehouse:
+        return 0.0
+    val = frappe.db.sql(
+        """
+        SELECT COALESCE(SUM(actual_qty), 0)
+        FROM `tabStock Ledger Entry`
+        WHERE batch_no = %s AND warehouse = %s AND is_cancelled = 0
+        """,
+        (batch_no, warehouse),
+    )
+    return flt(val[0][0]) if val else 0.0
+
+
+def _yarn_available_for_lot(root_lot, base_yarn_item, warehouse):
+    """Sum balance of all batches of this lot whose base item == base_yarn_item."""
+    batches = frappe.get_all(
+        "Batch", filters={"custom_root_lot": root_lot}, fields=["name", "item"]
+    )
+    total = 0.0
+    for b in batches:
+        if resolver.extract_base_yarn_item(b.item) == base_yarn_item:
+            total += _batch_balance_in_wh(b.name, warehouse)
+    return total

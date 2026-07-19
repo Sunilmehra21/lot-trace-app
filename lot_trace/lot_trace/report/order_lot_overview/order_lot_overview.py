@@ -2,128 +2,146 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-# Stages carried in yarn (kg). Everything from weaving onward is in pcs (Nos)
-# and must NOT be summed into the yarn In-Process figure.
-YARN_STAGES = {"NT", "DY"}
+from lot_trace.api.lot import get_lot_trace
+
+# Stages, in flow order, used to lay out the overview columns.
+GREIGE = "NT"
+DYE = "DY"
+WEAVE = "WV"
+CUT = "CT"
+
+# tolerance (kg) below which remaining dyed yarn is treated as fully consumed
+CONSUMED_TOLERANCE_KG = 1.0
 
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
-    lot_filters = {}
-    if filters.sales_order:
-        lot_filters["sales_order"] = filters.sales_order
-    if filters.product:
-        lot_filters["product"] = filters.product
-    if filters.status:
-        lot_filters["status"] = filters.status
+    root_lots = get_root_lots(filters)
 
-    lots = frappe.get_all(
-        "Root Lot", filters=lot_filters,
-        fields=["name", "product", "supplier", "received_qty", "uom",
-                "current_stage", "fg_qty", "dispatched_qty", "status"],
-        order_by="name")
-
+    columns = get_columns()
     data = []
-    for lot in lots:
-        stage_qty = get_stage_balances(lot.name)
-        nt_stage = stage_qty.get("NT", {})
-        dy_stage = stage_qty.get("DY", {})
-
-        # Dyed (Kg) = dyed yarn RECEIVED back from dyer (all receipts summed)
-        dyed_received = dy_stage.get("in_qty", 0)
-
-        # Dye loss = ACTUAL kg: greige yarn consumed at the dyer (Subcontracting
-        # Receipt consumption on the NT batch) minus dyed yarn received back.
-        nt_consumed_at_dyer = nt_stage.get("consumed_qty", 0)
-        dye_loss_kg = (round(nt_consumed_at_dyer - dyed_received, 2)
-                       if nt_consumed_at_dyer and dyed_received else 0)
-        dye_loss = loss_pct_for_stage(nt_consumed_at_dyer, dyed_received)
-
-        data.append({
-            "root_lot": lot.name,
-            "product": lot.product,
-            "supplier": lot.supplier,
-            "received_qty": lot.received_qty,
-            "dyed_qty": dyed_received,
-            "dye_loss_kg": dye_loss_kg,
-            "dye_loss_pct": dye_loss,
-            "weaved_qty": stage_qty.get("WV", {}).get("balance", 0),
-            # In-Process = yarn (kg) still in the pipeline, yarn stages only.
-            # Weaved pcs stages are a different UOM (Nos) and are excluded.
-            "in_process_qty": sum(
-                v.get("balance", 0)
-                for k, v in stage_qty.items()
-                if k in YARN_STAGES),
-            "fg_qty": lot.fg_qty,
-            "dispatched_qty": lot.dispatched_qty,
-            "current_stage": lot.current_stage,
-            "status": lot.status,
-            "open_exceptions": frappe.db.count(
-                "Lot Exception", {"root_lot": lot.name, "resolved": 0}),
-        })
-
-    columns = [
-        {"label": _("Root Lot"), "fieldname": "root_lot", "fieldtype": "Link",
-         "options": "Root Lot", "width": 150},
-        {"label": _("Product"), "fieldname": "product", "fieldtype": "Link",
-         "options": "Item", "width": 160},
-        {"label": _("Yarn Supplier"), "fieldname": "supplier", "fieldtype": "Link",
-         "options": "Supplier", "width": 130},
-        {"label": _("Yarn Recd (Kg)"), "fieldname": "received_qty",
-         "fieldtype": "Float", "width": 105},
-        {"label": _("Dyed (Kg)"), "fieldname": "dyed_qty", "fieldtype": "Float",
-         "width": 90},
-        {"label": _("Dye Loss (Kg)"), "fieldname": "dye_loss_kg", "fieldtype": "Float",
-         "width": 100},
-        {"label": _("Dye Loss %"), "fieldname": "dye_loss_pct", "fieldtype": "Percent",
-         "width": 90},
-        {"label": _("Weaved Pcs"), "fieldname": "weaved_qty", "fieldtype": "Float",
-         "width": 95},
-        {"label": _("In-Process (Kg)"), "fieldname": "in_process_qty",
-         "fieldtype": "Float", "width": 110},
-        {"label": _("FG Qty"), "fieldname": "fg_qty", "fieldtype": "Float", "width": 85},
-        {"label": _("Dispatched"), "fieldname": "dispatched_qty", "fieldtype": "Float",
-         "width": 95},
-        {"label": _("Stage"), "fieldname": "current_stage", "fieldtype": "Link",
-         "options": "Lot Process Stage", "width": 70},
-        {"label": _("Status"), "fieldname": "status", "width": 100},
-        {"label": _("Open Exc."), "fieldname": "open_exceptions", "fieldtype": "Int",
-         "width": 80},
-    ]
+    for lot in root_lots:
+        row = build_row(lot)
+        if row:
+            data.append(row)
     return columns, data
 
 
-def get_stage_balances(root_lot):
-    """Get input/output/consumed/balance per stage using Stock Ledger Entries.
+def get_root_lots(filters):
+    """Return the list of root lot ids to report on."""
+    if filters.get("root_lot"):
+        return [filters.root_lot]
 
-    consumed_qty = qty consumed by a subcontract process (Subcontracting
-    Receipt supplied-item consumption), i.e. real process input — warehouse
-    transfers are NOT consumption and are excluded from it.
-    """
-    rows = frappe.db.sql(
-        """
-        SELECT b.process_stage AS stage,
-               SUM(CASE WHEN sle.actual_qty > 0 THEN sle.actual_qty ELSE 0 END) AS in_qty,
-               SUM(CASE WHEN sle.actual_qty < 0 THEN ABS(sle.actual_qty) ELSE 0 END) AS out_qty,
-               SUM(CASE WHEN sle.actual_qty < 0
-                         AND sle.voucher_type = 'Subcontracting Receipt'
-                        THEN ABS(sle.actual_qty) ELSE 0 END) AS consumed_qty,
-               SUM(sle.actual_qty) AS balance
-        FROM `tabStock Ledger Entry` sle
-        JOIN `tabBatch` b ON b.name = sle.batch_no
-        WHERE b.root_lot = %s AND sle.is_cancelled = 0
-        GROUP BY b.process_stage
-        """, root_lot, as_dict=True)
-    return {r.stage: {
-        "in_qty": flt(r.in_qty),
-        "out_qty": flt(r.out_qty),
-        "consumed_qty": flt(r.consumed_qty),
-        "balance": flt(r.balance)
-    } for r in rows}
+    conditions = ["b.disabled = 0"]
+    values = {}
+    # A root lot is a Batch whose id has no stage suffix, i.e. it is the
+    # greige/native batch that seeds the tree. We identify root lots as the
+    # batches that carry a Sales Order / order reference custom field.
+    order_field = frappe.db.has_column("Batch", "custom_sales_order")
+    if filters.get("from_date"):
+        conditions.append("b.creation >= %(from_date)s")
+        values["from_date"] = filters.from_date
+    if filters.get("to_date"):
+        conditions.append("b.creation <= %(to_date)s")
+        values["to_date"] = filters.to_date
+
+    where = " AND ".join(conditions)
+    if order_field:
+        rows = frappe.db.sql(f"""
+            SELECT b.name
+            FROM `tabBatch` b
+            WHERE {where} AND IFNULL(b.custom_sales_order, '') != ''
+            ORDER BY b.creation DESC
+        """, values, as_dict=True)
+    else:
+        # fallback: batches whose name does not contain a stage suffix
+        rows = frappe.db.sql(f"""
+            SELECT b.name
+            FROM `tabBatch` b
+            WHERE {where}
+              AND b.name NOT LIKE '%%-DY%%'
+              AND b.name NOT LIKE '%%-WV%%'
+              AND b.name NOT LIKE '%%-CT%%'
+            ORDER BY b.creation DESC
+        """, values, as_dict=True)
+
+    return [r.name for r in rows]
 
 
-def loss_pct_for_stage(in_qty, out_qty):
-    """Loss % = (consumed at processor - received back) / consumed * 100."""
-    if not flt(in_qty) or not flt(out_qty):
-        return 0
-    return round((flt(in_qty) - flt(out_qty)) / flt(in_qty) * 100, 2)
+def build_row(root_lot):
+    raw = get_lot_trace(root_lot)
+    if not raw:
+        return None
+
+    stages = aggregate_stages(raw)
+
+    greige_kg = flt(stages.get(GREIGE, {}).get("in_qty"))
+    dyed_kg = flt(stages.get(DYE, {}).get("in_qty"))
+    # B6 fix: weaved pieces = pieces RECEIVED from the weaver (netted in_qty),
+    # not the current on-hand balance (which is 0 once sent to cutting).
+    weaved_pcs = flt(stages.get(WEAVE, {}).get("in_qty"))
+    cut_pcs = flt(stages.get(CUT, {}).get("in_qty"))
+
+    status = effective_status(stages)
+
+    return {
+        "root_lot": root_lot,
+        "greige_kg": greige_kg,
+        "dyed_kg": dyed_kg,
+        "weaved_pcs": weaved_pcs,
+        "cut_pcs": cut_pcs,
+        "dye_loss_kg": round(greige_kg - dyed_kg, 3) if greige_kg and dyed_kg else 0,
+        "status": status,
+    }
+
+
+def aggregate_stages(raw):
+    """Group SLEs by process stage; net inter-warehouse transfers so a stage's
+    in_qty reflects what actually entered that stage (received), and balance is
+    the current on-hand across all batches of that stage."""
+    stages = {}
+    for sle in raw:
+        stage = sle.get("process_stage") or "?"
+        qty = flt(sle.get("actual_qty"))
+        s = stages.setdefault(stage, {"in_qty": 0.0, "out_qty": 0.0, "balance": 0.0})
+        s["balance"] = round(s["balance"] + qty, 3)
+        if qty > 0:
+            s["in_qty"] = round(s["in_qty"] + qty, 3)
+        else:
+            s["out_qty"] = round(s["out_qty"] + abs(qty), 3)
+    return stages
+
+
+def effective_status(stages):
+    """B6 fix: a lot is only Completed when its dyed yarn is effectively fully
+    consumed (on-hand balance across dyed batches at/near zero). If dyed yarn
+    still sits in stock or with a weaver, the lot is In Progress."""
+    if not stages:
+        return "Open"
+
+    dye = stages.get(DYE)
+    if not dye or not dye.get("in_qty"):
+        # not yet dyed
+        return "In Progress" if stages.get(GREIGE) else "Open"
+
+    remaining_dyed = flt(dye.get("balance"))
+    if remaining_dyed > CONSUMED_TOLERANCE_KG:
+        return "In Progress"
+
+    # dyed yarn consumed — check that downstream produced something
+    if flt(stages.get(WEAVE, {}).get("in_qty")):
+        return "Completed"
+    return "In Progress"
+
+
+def get_columns():
+    return [
+        {"label": _("Root Lot"), "fieldname": "root_lot", "fieldtype": "Link",
+         "options": "Batch", "width": 200},
+        {"label": _("Greige (Kg)"), "fieldname": "greige_kg", "fieldtype": "Float", "width": 110},
+        {"label": _("Dyed (Kg)"), "fieldname": "dyed_kg", "fieldtype": "Float", "width": 110},
+        {"label": _("Dye Loss (Kg)"), "fieldname": "dye_loss_kg", "fieldtype": "Float", "width": 110},
+        {"label": _("Weaved (Pcs)"), "fieldname": "weaved_pcs", "fieldtype": "Float", "width": 110},
+        {"label": _("Cut (Pcs)"), "fieldname": "cut_pcs", "fieldtype": "Float", "width": 110},
+        {"label": _("Status"), "fieldname": "status", "width": 110},
+    ]

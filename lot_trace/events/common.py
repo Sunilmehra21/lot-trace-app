@@ -17,17 +17,9 @@ def get_settings():
 def find_naming_rule(yarn_item=None, product=None, customer=None):
     """Find the applicable Lot Naming Rule.
 
-    Selective traceability:
-    - Item.lot_trace_enabled unchecked -> item is never traced
-    - Customer.lot_trace_enabled (when a customer is resolvable) -> only
-      opted-in customers are traced. If no customer context, rule applies.
-
-    Multi-yarn products: create ONE Lot Naming Rule per yarn item (they can
-    share the same product and prefix) — each yarn receipt then births its
-    own root lot, and the lots meet at weaving via the Lot Consumption
-    (multi-lot weaving) table.
+    Multi-yarn products: one rule per yarn item (Phase 5 design).
+    Each yarn receipt births its own root lot; lots merge at weaving.
     """
-    # item-level opt-out
     if yarn_item:
         item_enabled = frappe.db.get_value("Item", yarn_item, "lot_trace_enabled")
         if item_enabled is not None and not int(item_enabled or 0):
@@ -43,7 +35,6 @@ def find_naming_rule(yarn_item=None, product=None, customer=None):
         return None
     rule = frappe.get_cached_doc("Lot Naming Rule", name)
 
-    # customer-level opt-in (checked only when a customer is known)
     rule_customer = customer or rule.get("customer")
     if rule_customer:
         cust_enabled = frappe.db.get_value(
@@ -86,10 +77,7 @@ def get_route_stages(root_lot):
 
 
 def first_stage_for_rule(rule):
-    """First stage of a rule's route. Products that START with fabric (no
-    greige yarn stage) set a Lot Route beginning at their real first stage
-    (e.g. WV or a custom FB stage) — lot birth then uses that stage instead
-    of hardcoded NT."""
+    """First stage of a rule's route (fabric-first support)."""
     route = rule.get("route")
     if route:
         stages = frappe.get_all(
@@ -111,7 +99,6 @@ def stage_order_index(root_lot, stage_code):
     stages = get_route_stages(root_lot)
     if stages and stage_code in stages:
         return stages.index(stage_code)
-    # fallback: global sequence
     return frappe.db.get_value("Lot Process Stage", stage_code, "sequence") or 0
 
 
@@ -130,10 +117,83 @@ def next_stage_after(stage_code, root_lot=None):
 
 
 # ----------------------------------------------------------------------
-# Stage batch factory:  batch_id = {root_lot}-{suffix}
+# Color attribute helper (Phase 5 — color-coded DY batch naming)
 # ----------------------------------------------------------------------
+def color_abbr_for_item(item_code):
+    """Return the Colour attribute abbreviation for an item variant
+    (e.g. 'BK' for 'Black', 'WH' for 'White').
+
+    Lookup chain:
+    1. Item Variant Attribute -> attribute value -> Item Attribute Value.abbr
+    2. If no Colour attribute, extract last uppercase segment after last '-'
+       from the item code (e.g. 'RM-YN-BCI-DYE-BK-CN' -> 'BK').
+    3. Final fallback: first 4 chars of scrubbed item code in upper case.
+    """
+    if not item_code:
+        return None
+
+    # 1. Colour attribute abbreviation
+    attr_value = frappe.db.get_value(
+        "Item Variant Attribute",
+        {"parent": item_code, "attribute": "Colour"},
+        "attribute_value")
+    if attr_value:
+        abbr = frappe.db.get_value(
+            "Item Attribute Value",
+            {"parent": "Colour", "attribute_value": attr_value},
+            "abbr")
+        if abbr:
+            return abbr.upper()[:4]
+        # abbr not set — use first word of value (max 4 chars)
+        return attr_value.replace(" ", "")[:4].upper()
+
+    # 2. Extract colour code from item code segments (e.g. …-BK-CN -> BK)
+    parts = item_code.upper().replace("_", "-").split("-")
+    # skip known suffixes and look for a short (2-4 char) alphabetic segment
+    known_non_color = {"CN", "EU", "US", "NT", "DY", "WV", "FG",
+                       "MA", "RM", "YN", "FA", "BCI", "MAV"}
+    for p in reversed(parts):
+        if p and 2 <= len(p) <= 4 and p.isalpha() and p not in known_non_color:
+            return p
+
+    return None
+
+
+# ----------------------------------------------------------------------
+# Stage batch factory:  batch_id = {root_lot}-{suffix}
+# For DY stage with a colour item: {root_lot}-{COLOR}-DY
+# ----------------------------------------------------------------------
+def batch_id_for_stage(root_lot, stage_code, item_code):
+    """Construct the canonical batch id for this lot / stage / item.
+
+    DY stage (Phase 5): if the item has a colour attribute, the id is
+        {root_lot}-{COLOR_ABBR}-DY   e.g. MV/BG/0726/01-BK-DY
+    All other stages keep the classic suffix:
+        {root_lot}-{batch_suffix}    e.g. MV/BG/0726/01-NT
+    Collision fallback for non-DY stages: append scrubbed item code.
+    """
+    try:
+        stage = frappe.get_cached_doc("Lot Process Stage", stage_code)
+        suffix = stage.batch_suffix or stage_code
+    except Exception:
+        suffix = stage_code
+
+    if stage_code == "DY":
+        color = color_abbr_for_item(item_code)
+        if color:
+            return f"{root_lot}-{color}-DY"
+        # No colour found: fall back to plain -DY (single-color lot)
+        return f"{root_lot}-DY"
+
+    return f"{root_lot}-{suffix}"
+
+
 def create_stage_batch(root_lot, stage_code, item_code):
-    stage = frappe.get_cached_doc("Lot Process Stage", stage_code)
+    """Get or create the batch for (root_lot, stage_code, item_code)."""
+    try:
+        stage = frappe.get_cached_doc("Lot Process Stage", stage_code)
+    except Exception:
+        frappe.throw(_("Lot Process Stage {0} not found").format(stage_code))
 
     # route guard: if the lot has a route, the stage must belong to it
     route_stages = get_route_stages(root_lot)
@@ -143,19 +203,12 @@ def create_stage_batch(root_lot, stage_code, item_code):
             "Check the Lot Route or the document's stage."
         ).format(stage_code, root_lot, " → ".join(route_stages)))
 
-    batch_id = f"{root_lot}-{stage.batch_suffix}"
+    batch_id = batch_id_for_stage(root_lot, stage_code, item_code)
 
     existing = frappe.db.get_value("Batch", batch_id, ["item"], as_dict=True)
     if existing:
-        if existing.item != item_code:
-            # same lot reaches same stage with a different item — normal for
-            # MULTI-COLOR dyeing (one lot dyed into several colors): each
-            # color item gets its own item-suffixed batch id.
-            batch_id = f"{root_lot}-{stage.batch_suffix}-{frappe.scrub(item_code)[:8].upper()}"
-            if frappe.db.exists("Batch", batch_id):
-                return batch_id
-        else:
-            return batch_id
+        # already exists — return it (even if item changed, same lot/color/stage)
+        return batch_id
 
     batch = frappe.new_doc("Batch")
     batch.batch_id = batch_id
@@ -183,7 +236,7 @@ def get_root_lot_of_batch(batch_no):
 
 
 # ----------------------------------------------------------------------
-# Single-lot-per-transaction guard (confirmed business rule)
+# Single-lot-per-transaction guard
 # ----------------------------------------------------------------------
 def collect_root_lots(doc, batch_field="batch_no", tables=("items",)):
     lots = set()
@@ -196,20 +249,12 @@ def collect_root_lots(doc, batch_field="batch_no", tables=("items",)):
 
 
 def enforce_single_lot(doc, lots):
-    """Three-mode mixing policy.
-
-    - Block: reject mixed lots; Lot Manager may tick 'Allow Mixed Lots'
-      (override is logged as an exception).
-    - Warn: allowed, always logged as an exception.
-    - Allow: allowed silently, nothing logged.
-    """
+    """Three-mode mixing policy (Block / Warn / Allow)."""
     if len(lots) <= 1:
         return
     policy = get_settings().mixing_policy or "Block"
-
     if policy == "Allow":
-        return  # no restriction, no logging
-
+        return
     allow_override = bool(doc.get("allow_mixed_lots"))
     if policy == "Block" and not allow_override:
         frappe.throw(_(
@@ -247,20 +292,11 @@ def log_exception(exception_type, severity, message="", root_lot=None,
 
 # ----------------------------------------------------------------------
 # Loss check — ACTUAL loss (consumed - received), tolerance from the BOM.
-#
-# Example (dyeing): jobworker consumed 735 kg NT to deliver 700 kg DY.
-# Actual loss = 35 kg. BOM of the DY item says 1.05 kg NT per 1 kg DY,
-# so expected loss for 700 kg = 35 kg -> within tolerance, no exception.
-# Falls back to Lot Process Stage.expected_loss_pct when no BOM exists.
 # ----------------------------------------------------------------------
 def expected_input_per_unit(output_item):
-    """From the output item's BOM: input qty consumed per 1 unit of output."""
-    bom = (frappe.db.get_value("BOM", {"item": output_item, "is_active": 1,
-                                       "is_default": 1}, "name")
-           or frappe.db.get_value("BOM", {"item": output_item, "is_active": 1},
-                                  "name")
-           or frappe.db.get_value("BOM", {"item": output_item, "docstatus": 1},
-                                  "name"))
+    """From the output item's BOM: total input qty consumed per 1 unit."""
+    from lot_trace.api.lot import get_bom_for_item
+    bom = get_bom_for_item(output_item)
     if not bom:
         return 0
     bom_qty = flt(frappe.db.get_value("BOM", bom, "quantity")) or 1
@@ -272,24 +308,14 @@ def expected_input_per_unit(output_item):
 
 def check_stage_loss(root_lot, stage_code, input_qty, output_qty,
                      erp_doc_type=None, erp_doc_name=None, output_item=None):
-    """Compare ACTUAL loss kg against BOM-expected consumption.
-
-    input_qty  = qty of previous-stage material actually consumed
-    output_qty = qty received back at this stage
-    output_item = the stage's output item (to read its BOM)
-    """
     input_qty, output_qty = flt(input_qty), flt(output_qty)
     if not input_qty or not output_qty:
         return
-
     actual_loss = input_qty - output_qty
-
-    # preferred: BOM-based expected consumption
     per_unit = expected_input_per_unit(output_item) if output_item else 0
     if per_unit > 0:
         expected_input = output_qty * per_unit
         expected_loss = expected_input - output_qty
-        # tolerance: consumed more than the BOM allows (0.1 rounding slack)
         if input_qty > expected_input + 0.1:
             log_exception(
                 "Loss Out of Tolerance", "Warning", root_lot=root_lot,
@@ -301,10 +327,8 @@ def check_stage_loss(root_lot, stage_code, input_qty, output_qty,
                          round(expected_loss, 2), input_qty, output_qty,
                          round(expected_input, 2)))
         return
-
-    # fallback: stage % tolerance (no BOM found)
-    stage = frappe.get_cached_doc("Lot Process Stage", stage_code)
-    tol = flt(stage.expected_loss_pct)
+    stage_doc = frappe.get_cached_doc("Lot Process Stage", stage_code)
+    tol = flt(stage_doc.expected_loss_pct)
     if tol <= 0:
         return
     loss_pct = actual_loss / input_qty * 100
@@ -314,5 +338,4 @@ def check_stage_loss(root_lot, stage_code, input_qty, output_qty,
                       message=_("Stage {0}: loss {1}% ({2}) exceeds tolerance {3}% "
                                 "(in {4}, out {5})")
                       .format(stage_code, round(loss_pct, 2),
-                              round(actual_loss, 2), tol,
-                              input_qty, output_qty))
+                              round(actual_loss, 2), tol, input_qty, output_qty))
