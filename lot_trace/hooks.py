@@ -1,51 +1,26 @@
-app_name = "lot_trace"
-app_title = "Lot Trace"
-app_publisher = "Your Company"
-app_description = "Root Lot traceability on native Batch (greige yarn to finished garment)"
-app_email = "erp@yourcompany.com"
-app_license = "MIT"
-required_apps = ["erpnext"]
-
-fixtures = [
-    {"dt": "Role", "filters": [["name", "in", ["Lot Manager", "Lot User"]]]},
-    {"dt": "Custom Field", "filters": [["module", "=", "Lot Trace"]]},
-    {"dt": "Lot Process Stage"},
-]
-
-doctype_js = {
-    "Purchase Receipt": "public/js/purchase_receipt.js",
-}
+# -*- coding: utf-8 -*-
+# Phase 6.2 HOTFIX — hooks.py doc_events block.
+#
+# REPLACE the entire doc_events dict in your lot_trace/hooks.py with this.
+# (Bug 2 happened because hooks still referenced on_submit handlers that the
+# V2 files didn't define. The new handler files define every hook name below,
+# so this wiring can never raise AttributeError again.)
 
 doc_events = {
     "Purchase Receipt": {
         "before_submit": "lot_trace.events.purchase_receipt.before_submit",
         "on_submit": "lot_trace.events.purchase_receipt.on_submit",
+        "before_cancel": "lot_trace.events.purchase_receipt.before_cancel",
         "on_cancel": "lot_trace.events.purchase_receipt.on_cancel",
     },
     "Subcontracting Receipt": {
         "before_submit": "lot_trace.events.subcontracting_receipt.before_submit",
         "on_submit": "lot_trace.events.subcontracting_receipt.on_submit",
+        "before_cancel": "lot_trace.events.subcontracting_receipt.before_cancel",
+        "on_cancel": "lot_trace.events.subcontracting_receipt.on_cancel",
     },
-    "Stock Entry": {
-        "before_submit": "lot_trace.events.stock_entry.before_submit",
-    },
-    "Delivery Note": {
-        "before_submit": "lot_trace.events.delivery.before_submit",
-        "on_submit": "lot_trace.events.delivery.on_submit",
-        "on_cancel": "lot_trace.events.delivery.on_cancel",
-    },
-    "Sales Invoice": {
-        "before_submit": "lot_trace.events.delivery.before_submit",
-        "on_submit": "lot_trace.events.delivery.on_submit",
-        "on_cancel": "lot_trace.events.delivery.on_cancel",
-    },
-    # pre-wired for the already-built custom repair doctypes
-    # (harmless if the doctype names differ - configure in Lot Trace Settings
-    #  and add matching doc_events in the repair app if names differ)
-    "Repair Issue": {
-        "before_submit": "lot_trace.events.repair.before_submit",
-    },
-    "Repair Receipt": {
-        "before_submit": "lot_trace.events.repair.before_submit",
+    "Root Lot": {
+        "before_cancel": "lot_trace.events.root_lot_cleanup.before_cancel",
+        "on_trash": "lot_trace.events.root_lot_cleanup.on_trash",
     },
 }
