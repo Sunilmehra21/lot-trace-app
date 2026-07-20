@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-# Phase 6 V2 — Lot Naming Rule (simplified, no complex tokens)
+# Phase 6.2 HOTFIX — Lot Naming Rule controller.
+# Legacy Phase 5 fields removed; validation simplified.
 
-import re
 from datetime import datetime
+
 import frappe
 from frappe.model.document import Document
 
@@ -13,32 +14,31 @@ class LotNamingRule(Document):
         self._validate_prefix()
 
     def _validate_yarns(self):
-        """Ensure exactly one primary yarn if yarns table is used."""
         if not self.yarns:
-            # Backward compat: Phase 5 single-yarn rule (yarn_item field)
-            if not self.yarn_item:
-                frappe.throw("Add at least one yarn in the Yarns table, "
-                             "or use the legacy Yarn Item field for single-yarn products.")
-            return
+            frappe.throw("Add at least one yarn in the Yarns table.")
 
         primaries = [y for y in self.yarns if y.role == "Primary"]
         if len(primaries) != 1:
             frappe.throw("Exactly one yarn must have Role = Primary.")
 
-        abbrs = [y.item_abbr for y in self.yarns if y.item_abbr]
+        abbrs = [(y.item_abbr or "").strip().upper() for y in self.yarns]
+        if "" in abbrs:
+            frappe.throw("Abbr is mandatory for every yarn.")
         if len(abbrs) != len(set(abbrs)):
-            frappe.throw("Item Abbr values must be unique across all yarns.")
+            frappe.throw("Abbr values must be unique across all yarns.")
+
+        items = [y.yarn_item for y in self.yarns]
+        if len(items) != len(set(items)):
+            frappe.throw("The same yarn item is listed more than once.")
 
     def _validate_prefix(self):
-        """Ensure prefix is sensible (no tokens)."""
-        if "{" in (self.lot_code_prefix or "") or "}" in (self.lot_code_prefix or ""):
-            frappe.throw("Lot Code Prefix should be simple (e.g., MV/BG). "
-                         "Do not use {MMYY}, {##}, or other tokens. "
-                         "Serial is auto-generated.")
+        if "{" in (self.lot_code_prefix or ""):
+            frappe.throw("Lot Code Prefix should be plain text (e.g., MV/BG). "
+                         "The serial and month are added automatically.")
 
 
 def next_lot_serial_for_rule(rule_name):
-    """Get next serial for this rule in the current MMYY period."""
+    """Next serial for this rule in the current MMYY period."""
     mmyy = datetime.now().strftime("%m%y")
     existing = frappe.get_all(
         "Root Lot",
@@ -47,11 +47,13 @@ def next_lot_serial_for_rule(rule_name):
         order_by="serial desc",
         limit=1,
     )
-    return (int(existing[0].serial) + 1) if existing else 1
+    if existing and existing[0].serial:
+        return int(existing[0].serial) + 1
+    return 1
 
 
 def generate_lot_code(rule_name, prefix=None):
-    """Generate the next lot code for a rule: {prefix}/{MMYY}/{##serial}."""
+    """Next lot code: {prefix}/{MMYY}/{serial:02d}."""
     if not prefix:
         prefix = frappe.db.get_value("Lot Naming Rule", rule_name, "lot_code_prefix")
     mmyy = datetime.now().strftime("%m%y")
