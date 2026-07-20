@@ -1,55 +1,30 @@
 # -*- coding: utf-8 -*-
-# Phase 6 — Purchase Receipt handler (greige yarn intake + weaving FG).
-#
-# On submit of a Purchase Receipt:
-#   * Greige yarn rows  -> create/reuse ONE Root Lot for the production run,
-#                          create per-item NT batches, record Lot Receipts.
-#   * Weaving FG rows   -> resolve the lot from the dyed yarn at the weaver,
-#                          create the WV batch, validate BOM consumption.
-#
-# We only set row.batch_no and create Root Lot / Batch docs. Stock, SLE and
-# valuation are left entirely to standard ERPNext (user requirement #4).
+# Phase 6.2 HOTFIX — Purchase Receipt handler (canonical).
+# This file replaces BOTH the old Phase 5/6 purchase_receipt.py and the V2 file.
+# It keeps every hook name the site's hooks.py might reference (before_submit,
+# on_submit, on_cancel, before_cancel) so no AttributeError is possible.
 
 import frappe
 from frappe.utils import flt
 
-from lot_trace.events import resolver
-from lot_trace.events.lot_factory import (
-    create_root_lot,
-    ensure_batch,
-    record_lot_receipt,
-)
+from lot_trace.events import resolver_v2
+from lot_trace.events import lot_factory_v2
 
 
-def on_cancel(doc, method=None):
-    """Roll back Lot Receipts recorded by this PR. Batches/lots are kept
-    (they may hold stock from other vouchers); we only remove our receipt rows
-    and re-open intake if needed."""
-    for row in doc.items:
-        rl = frappe.db.get_value("Batch", row.get("batch_no"), "custom_root_lot") \
-            if row.get("batch_no") else None
-        if not rl:
-            continue
-        lot = frappe.get_doc("Root Lot", rl)
-        kept = [r for r in lot.get("lot_receipts", []) if r.source_doc != doc.name]
-        if len(kept) != len(lot.get("lot_receipts", [])):
-            lot.set("lot_receipts", kept)
-            lot.intake_complete = 0
-            lot.save(ignore_permissions=True)
-
+# ---------------------------------------------------------------------------
+# Hook entry points (all present — fixes Bug 2: "no attribute 'on_submit'")
+# ---------------------------------------------------------------------------
 
 def before_submit(doc, method=None):
-    """Assign batch numbers and stage lot decisions before stock posts."""
+    """Assign batch numbers and create/reuse Root Lots before stock posts."""
     greige_rows = []
     weave_rows = []
 
     for row in doc.items:
-        profile, trace = resolver.resolve_profile_for_item(row.item_code)
-        if profile:
-            greige_rows.append((row, profile, trace))
-            continue
-        # Is this a finished good with a profile (weaving output)?
-        if _is_weaving_output(row.item_code):
+        rule, yarn_row = resolver_v2.find_naming_rule_for_item(row.item_code)
+        if rule:
+            greige_rows.append((row, rule, yarn_row))
+        elif _is_weaving_output(row.item_code):
             weave_rows.append(row)
 
     if greige_rows:
@@ -58,70 +33,93 @@ def before_submit(doc, method=None):
         _handle_weaving_row(doc, row)
 
 
+def on_submit(doc, method=None):
+    """Kept for compatibility with hooks.py entries that reference on_submit.
+    All work is done in before_submit (so batch_no is set before stock posts)."""
+    pass
+
+
+def before_cancel(doc, method=None):
+    """Fixes Bug 1 (cancel deadlock): tell Frappe to skip the link check
+    against our own tracking doctypes. on_cancel then cleans our records."""
+    doc.flags.ignore_links = True
+    doc.ignore_linked_doctypes = ["Root Lot", "Batch", "Lot Receipt"]
+
+
+def on_cancel(doc, method=None):
+    """Remove Lot Receipt rows recorded by this PR and re-open intake."""
+    seen_lots = set()
+    for row in doc.items:
+        if not row.get("batch_no"):
+            continue
+        rl = frappe.db.get_value("Batch", row.batch_no, "custom_root_lot")
+        if rl:
+            seen_lots.add(rl)
+
+    for rl in seen_lots:
+        if not frappe.db.exists("Root Lot", rl):
+            continue
+        lot = frappe.get_doc("Root Lot", rl)
+        receipts = lot.get("lot_receipts", []) or []
+        kept = [r for r in receipts if r.source_doc != doc.name]
+        if len(kept) != len(receipts):
+            lot.set("lot_receipts", kept)
+            lot.intake_complete = 0
+            lot.flags.ignore_links = True
+            lot.save(ignore_permissions=True)
+
+
 # ---------------------------------------------------------------------------
 # Greige intake
 # ---------------------------------------------------------------------------
 
 def _handle_greige_intake(doc, greige_rows):
-    """Create/reuse ONE lot per (profile, production run) and NT batches.
-
-    Multiple rows of the SAME profile in one PR share one lot. The primary
-    yarn (if present) opens/creates the lot; secondaries attach.
-    """
     po_root_lot = _po_root_lot(doc)
 
-    # Group rows by profile so a single multi-item PR maps cleanly.
-    by_profile = {}
-    for row, profile, trace in greige_rows:
-        by_profile.setdefault(profile, []).append((row, trace))
+    by_rule = {}
+    for row, rule, yarn_row in greige_rows:
+        by_rule.setdefault(rule, []).append((row, yarn_row))
 
-    for profile, rows in by_profile.items():
-        # Does this PR contain the primary yarn? Then this is a NEW run.
-        primary_present = any(t.role == "Primary" for _r, t in rows)
+    for rule, rows in by_rule.items():
+        primary_present = any((yr or {}).get("role") == "Primary" for _, yr in rows)
 
         if primary_present:
-            root_lot = create_root_lot(profile, po_root_lot=po_root_lot)
+            root_lot = lot_factory_v2.create_root_lot(rule)
         else:
-            root_lot = _resolve_secondary_only_lot(profile, rows, po_root_lot, doc)
+            root_lot = _resolve_secondary_only_lot(rule, rows, po_root_lot)
 
-        for row, trace in rows:
-            _attach_nt_batch(doc, row, profile, root_lot, trace)
+        for row, yarn_row in rows:
+            _attach_nt_batch(doc, row, root_lot, yarn_row)
 
 
-def _resolve_secondary_only_lot(profile, rows, po_root_lot, doc):
-    """PR has only secondary yarn(s) of this profile. Attach to an open lot."""
-    # Use the first row to probe; all secondaries here go to the same run
-    # (same PR = same delivery). Resolve once, reuse for all.
+def _resolve_secondary_only_lot(rule, rows, po_root_lot):
     first_item = rows[0][0].item_code
-    decision = resolver.resolve_open_lot(first_item, po_root_lot=po_root_lot)
+    decision = resolver_v2.resolve_open_lot(first_item, po_root_lot=po_root_lot)
 
     if decision["action"] == "reuse":
         if decision["ambiguous"]:
             frappe.throw(
-                f"Multiple open lots of {profile} were opened the same day and "
-                f"are waiting for {first_item}. Set the Root Lot on the linked "
-                f"Purchase Order, or receive against a specific lot. "
-                f"Candidates: {', '.join(decision['candidates'])}"
+                f"Multiple open lots are waiting for {first_item}. "
+                f"Link the Purchase Order to a specific Root Lot first."
             )
         return decision["root_lot"]
 
-    # action == 'hold' -> secondary arrived before its primary.
     frappe.throw(
-        f"{first_item} is a secondary yarn for {profile}, but no open production "
-        f"lot is waiting for it. Receive the primary yarn first, or link this "
-        f"receipt to an existing Purchase Order that carries the Root Lot."
+        f"{first_item} is a secondary yarn, but no open lot is waiting for it. "
+        f"Receive the primary yarn first."
     )
 
 
-def _attach_nt_batch(doc, row, profile, root_lot, trace):
+def _attach_nt_batch(doc, row, root_lot, yarn_row):
     lot_code = frappe.db.get_value("Root Lot", root_lot, "lot_code") or root_lot
-    batch_name = resolver.render_batch_name(profile, lot_code, "NT", trace)
-    ensure_batch(batch_name, row.item_code, root_lot, stage="NT")
+    abbr = (yarn_row or {}).get("item_abbr")
+    batch_name = resolver_v2.render_batch_name(lot_code, "NT", abbr=abbr)
+    lot_factory_v2.ensure_batch(batch_name, row.item_code, root_lot, stage="NT")
     row.batch_no = batch_name
-    record_lot_receipt(
+    lot_factory_v2.record_lot_receipt(
         root_lot=root_lot,
         yarn_item=row.item_code,
-        item_abbr=trace.item_abbr,
+        item_abbr=abbr or "",
         nt_batch=batch_name,
         received_kg=flt(row.qty),
         source_doctype=doc.doctype,
@@ -130,98 +128,83 @@ def _attach_nt_batch(doc, row, profile, root_lot, trace):
 
 
 # ---------------------------------------------------------------------------
-# Weaving output
+# Weaving output (restored — was dropped in the V2 file by mistake)
 # ---------------------------------------------------------------------------
 
 def _is_weaving_output(item_code):
-    """True if item is a finished product that has a Lot Trace Profile."""
-    return bool(
-        frappe.db.exists("Lot Trace Profile", {"product": item_code, "active": 1})
-    )
+    return bool(frappe.db.exists(
+        "Lot Naming Rule", {"product": item_code, "active": 1}
+    ))
 
 
 def _handle_weaving_row(doc, row):
-    """Resolve the lot whose dyed yarn is at this weaver, create WV batch."""
-    profile = frappe.db.get_value(
-        "Lot Trace Profile", {"product": row.item_code, "active": 1}, "name"
+    rule = frappe.db.get_value(
+        "Lot Naming Rule", {"product": row.item_code, "active": 1}, "name"
     )
-    root_lot = _lot_at_supplier(profile, doc.supplier)
+    root_lot = _lot_at_supplier_for_rule(rule, doc.supplier)
     if not root_lot:
         frappe.throw(
-            f"Could not resolve which production lot's dyed yarn is with "
-            f"weaver {doc.supplier} for {row.item_code}. Set the Root Lot "
-            f"manually on this row."
+            f"Could not resolve which lot's dyed yarn is with {doc.supplier} "
+            f"for {row.item_code}. Set the Root Lot manually on this row."
         )
     lot_code = frappe.db.get_value("Root Lot", root_lot, "lot_code") or root_lot
-    batch_name = resolver.render_batch_name(profile, lot_code, "WV")
-    ensure_batch(batch_name, row.item_code, root_lot, stage="WV")
+    batch_name = resolver_v2.render_batch_name(lot_code, "WV")
+    lot_factory_v2.ensure_batch(batch_name, row.item_code, root_lot, stage="WV")
     row.batch_no = batch_name
-
-    _validate_weaving_consumption(profile, root_lot, doc.supplier, flt(row.qty))
     frappe.db.set_value("Root Lot", root_lot, "current_stage", "WV")
 
 
-def _lot_at_supplier(profile, supplier):
-    """Find the open lot of this profile whose dyed batches are stocked at the
-    supplier's (weaver's) warehouse. FIFO if more than one."""
+def _lot_at_supplier_for_rule(rule, supplier):
+    """Oldest open lot of this rule whose DY batches have stock at the
+    supplier warehouse; falls back to the single open DY-stage lot."""
     open_lots = frappe.get_all(
         "Root Lot",
-        filters={"profile": profile, "intake_complete": 1, "current_stage": ["in", ["DY", "NT"]]},
-        fields=["name"],
+        filters={"naming_rule": rule, "status": ["!=", "Completed"]},
+        fields=["name", "current_stage"],
         order_by="creation asc",
     )
-    supplier_wh = _supplier_warehouse(supplier)
-    for lot in open_lots:
-        dy_batches = frappe.get_all(
-            "Batch", filters={"custom_root_lot": lot.name, "custom_stage": "DY"},
-            fields=["name"],
-        )
-        for b in dy_batches:
-            bal = _batch_balance_in_wh(b.name, supplier_wh)
-            if bal > 0.001:
-                return lot.name
-    # Fallback: single open lot at DY stage
+    wh = _supplier_warehouse(supplier)
+    if wh:
+        for lot in open_lots:
+            dy = frappe.get_all(
+                "Batch",
+                filters={"custom_root_lot": lot.name, "custom_stage": "DY"},
+                pluck="name",
+            )
+            for b in dy:
+                if _batch_balance_in_wh(b, wh) > 0.001:
+                    return lot.name
+    dy_lots = [l for l in open_lots if l.current_stage == "DY"]
+    if len(dy_lots) == 1:
+        return dy_lots[0].name
     if len(open_lots) == 1:
         return open_lots[0].name
     return None
 
 
-def _validate_weaving_consumption(profile, root_lot, supplier, pcs):
-    """Informational BOM check per yarn item; warn (not block) beyond tolerance.
-
-    We never alter stock — standard ERP subcontracting consumes the yarn.
-    This only flags a discrepancy for the user to review.
-    """
-    tol = flt(frappe.db.get_value("Lot Trace Profile", profile, "weaving_tolerance_pct")) or 2.0
-    trace_items = frappe.get_all(
-        "Lot Trace Item", filters={"parent": profile},
-        fields=["yarn_item", "item_abbr", "bom_kg_per_pc"],
+def _supplier_warehouse(supplier):
+    wh = frappe.db.get_value(
+        "Warehouse", {"custom_supplier": supplier, "is_group": 0}, "name"
     )
-    supplier_wh = _supplier_warehouse(supplier)
-    messages = []
-    for ti in trace_items:
-        expected = flt(ti.bom_kg_per_pc) * flt(pcs)
-        if expected <= 0:
-            continue
-        available = _yarn_available_for_lot(root_lot, ti.yarn_item, supplier_wh)
-        if available + (expected * tol / 100.0) + 0.5 < expected:
-            messages.append(
-                f"  {ti.yarn_item}: needs ~{expected:.1f} kg, only {available:.1f} kg "
-                f"of this lot at weaver"
-            )
-    if messages:
-        frappe.msgprint(
-            "Weaving consumption check (informational):\n" + "\n".join(messages),
-            title="Yarn shortfall vs BOM", indicator="orange",
-        )
+    if wh:
+        return wh
+    return frappe.db.get_value(
+        "Warehouse", {"warehouse_name": ["like", f"%{supplier}%"], "is_group": 0},
+        "name",
+    )
 
 
-# ---------------------------------------------------------------------------
-# Small stock READ helpers (never write)
-# ---------------------------------------------------------------------------
+def _batch_balance_in_wh(batch_no, warehouse):
+    val = frappe.db.sql(
+        """SELECT COALESCE(SUM(actual_qty), 0)
+           FROM `tabStock Ledger Entry`
+           WHERE batch_no = %s AND warehouse = %s AND is_cancelled = 0""",
+        (batch_no, warehouse),
+    )
+    return flt(val[0][0]) if val else 0.0
+
 
 def _po_root_lot(doc):
-    """If PR rows link to a PO carrying a Root Lot, return it."""
     for row in doc.items:
         po = row.get("purchase_order")
         if po:
@@ -229,37 +212,3 @@ def _po_root_lot(doc):
             if rl:
                 return rl
     return None
-
-
-def _supplier_warehouse(supplier):
-    return frappe.db.get_value(
-        "Warehouse", {"custom_supplier": supplier, "is_group": 0}, "name"
-    ) or frappe.db.get_value(
-        "Warehouse", {"warehouse_name": ["like", f"%{supplier}%"]}, "name"
-    )
-
-
-def _batch_balance_in_wh(batch_no, warehouse):
-    if not warehouse:
-        return 0.0
-    val = frappe.db.sql(
-        """
-        SELECT COALESCE(SUM(actual_qty), 0)
-        FROM `tabStock Ledger Entry`
-        WHERE batch_no = %s AND warehouse = %s AND is_cancelled = 0
-        """,
-        (batch_no, warehouse),
-    )
-    return flt(val[0][0]) if val else 0.0
-
-
-def _yarn_available_for_lot(root_lot, base_yarn_item, warehouse):
-    """Sum balance of all batches of this lot whose base item == base_yarn_item."""
-    batches = frappe.get_all(
-        "Batch", filters={"custom_root_lot": root_lot}, fields=["name", "item"]
-    )
-    total = 0.0
-    for b in batches:
-        if resolver.extract_base_yarn_item(b.item) == base_yarn_item:
-            total += _batch_balance_in_wh(b.name, warehouse)
-    return total
