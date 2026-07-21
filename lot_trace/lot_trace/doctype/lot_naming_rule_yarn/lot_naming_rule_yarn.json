@@ -1,6 +1,6 @@
 {
  "actions": [],
- "creation": "2026-07-19 00:00:00.000000",
+ "creation": "2026-07-21 10:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -11,39 +11,37 @@
  ],
  "fields": [
   {
-   "columns": 4,
    "fieldname": "yarn_item",
    "fieldtype": "Link",
-   "in_list_view": 1,
    "label": "Yarn Item (Greige)",
    "options": "Item",
-   "reqd": 1
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 5
   },
   {
-   "columns": 2,
-   "default": "Secondary",
+   "default": "Primary",
    "fieldname": "role",
    "fieldtype": "Select",
-   "in_list_view": 1,
    "label": "Role",
    "options": "Primary\nSecondary",
    "reqd": 1,
-   "description": "Primary = triggers new lot (01→02→03). Secondary = joins existing lot."
+   "in_list_view": 1,
+   "columns": 3
   },
   {
-   "columns": 2,
    "fieldname": "item_abbr",
    "fieldtype": "Data",
-   "in_list_view": 1,
    "label": "Abbr",
    "reqd": 1,
-   "description": "Short code for batch names: A, B, CT, CH, etc. Unique per rule."
+   "in_list_view": 1,
+   "columns": 2,
+   "description": "Short code used in batch names, e.g. A"
   }
  ],
- "index_web_pages_for_search": 1,
  "istable": 1,
- "links": [],
- "modified": "2026-07-19 00:00:00.000000",
+ "modified": "2026-07-21 10:00:00.000000",
+ "modified_by": "Administrator",
  "module": "Lot Trace",
  "name": "Lot Naming Rule Yarn",
  "owner": "Administrator",

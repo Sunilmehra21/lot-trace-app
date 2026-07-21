@@ -1,264 +1,128 @@
 # -*- coding: utf-8 -*-
-# Phase 6 V2 — Resolver (simplified, reads from Lot Naming Rule, not Profile)
-#
-# Core logic is identical to Phase 6 V1:
-#   - PRIMARY yarn opens new lot (serial +1)
-#   - SECONDARY yarn reuses oldest open lot waiting for it (FIFO)
-#   - Batch naming is hardcoded (no config patterns)
-#
-# Config reading is MUCH simpler: just read the Lot Naming Rule (Yarns table).
+# V7 — Rule / lot resolution. Single source of truth for naming decisions.
 
-import re
 import frappe
-from frappe.utils import nowdate
 
+# Stage codes used by batch naming. Extra stages (ST/EM/FN/PK) exist only in
+# the flow chart display; batches are created for these four.
+STAGES = ["NT", "DY", "WV", "CT"]
 
-# ---------------------------------------------------------------------------
-# Rule and yarn resolution
-# ---------------------------------------------------------------------------
+DEFAULT_STAGE_LABELS = [
+    ("NT", "Natural/Greige Yarn"),
+    ("DY", "Yarn Dyeing"),
+    ("WV", "Weaving"),
+    ("CT", "Cutting"),
+    ("ST", "Stitching"),
+    ("EM", "Embroidery"),
+    ("FN", "Finishing"),
+    ("PK", "Packing"),
+]
+
 
 def find_naming_rule_for_item(item_code):
-    """Find the Lot Naming Rule (and its yarn row) for a greige item.
-
-    Returns (rule_name, yarn_row_dict) or (None, None).
-    """
-    # Find all rules that list this item in their Yarns table
-    rules = frappe.get_all(
-        "Lot Naming Rule",
-        filters={"active": 1},
-        fields=["name"],
+    """Return (rule dict, yarn child row dict) if item_code is a configured
+    greige yarn in an ACTIVE Lot Naming Rule, else (None, None)."""
+    rows = frappe.get_all(
+        "Lot Naming Rule Yarn",
+        filters={"yarn_item": item_code, "parenttype": "Lot Naming Rule"},
+        fields=["parent", "yarn_item", "role", "item_abbr"],
     )
-
-    for rule in rules:
-        yarns = frappe.get_all(
-            "Lot Naming Rule Yarn",
-            filters={"parent": rule.name, "yarn_item": item_code},
-            fields=["name", "yarn_item", "role", "item_abbr"],
-        )
-        if yarns:
-            return rule.name, yarns[0]
-
-    # Fallback: check legacy yarn_item field (Phase 5 compatibility)
-    rule = frappe.db.get_value(
-        "Lot Naming Rule", {"yarn_item": item_code, "active": 1}, "name"
-    )
-    if rule:
-        return rule, {"yarn_item": item_code, "role": "Primary", "item_abbr": None}
-
+    for r in rows:
+        rule = frappe.db.get_value(
+            "Lot Naming Rule", r.parent,
+            ["name", "product", "lot_code_prefix", "active"], as_dict=True)
+        if rule and rule.active:
+            return rule, r
     return None, None
 
 
-def get_product_for_rule(rule_name):
-    """Return the product (finished good) for a rule."""
-    return frappe.db.get_value("Lot Naming Rule", rule_name, "product")
-
-
-def get_all_yarns_for_rule(rule_name):
-    """Return all yarns (Yarns table) for a rule."""
-    yarns = frappe.get_all(
-        "Lot Naming Rule Yarn",
-        filters={"parent": rule_name},
-        fields=["name", "yarn_item", "role", "item_abbr"],
-        order_by="role asc",  # Primary first
-    )
-    if yarns:
-        return yarns
-    # Fallback: Phase 5 legacy (single yarn_item field)
-    item = frappe.db.get_value("Lot Naming Rule", rule_name, "yarn_item")
-    if item:
-        return [{"yarn_item": item, "role": "Primary", "item_abbr": None}]
-    return []
-
-
-# ---------------------------------------------------------------------------
-# Core decision logic (identical to Phase 6 V1)
-# ---------------------------------------------------------------------------
-
-def resolve_open_lot(item_code, po_root_lot=None):
-    """Decide which Root Lot an incoming greige receipt belongs to.
-
-    Returns {"action": "create"|"reuse"|"hold", "root_lot": name-or-None,
-             "rule": rule_name, "yarn_row": dict, "role": "Primary"|"Secondary",
-             "ambiguous": bool, "candidates": [names]}
-    """
+def resolve_open_lot(item_code):
+    """Decide what to do for a yarn receipt.
+    Primary  -> always {'action': 'new'} (caller creates a lot).
+    Secondary-> FIFO: oldest OPEN lot of the same rule that has not yet
+                received this yarn -> {'action': 'reuse'}; else 'blocked'."""
     rule, yarn_row = find_naming_rule_for_item(item_code)
     if not rule:
-        return {
-            "action": None, "root_lot": None, "rule": None, "yarn_row": None,
-            "role": None, "ambiguous": False, "candidates": [],
-        }
+        return {"action": "none"}
 
-    product = get_product_for_rule(rule)
-    role = yarn_row.get("role", "Primary")
+    if (yarn_row.role or "Primary") == "Primary":
+        return {"action": "new", "rule": rule, "yarn_row": yarn_row}
 
-    if role == "Primary":
-        return {
-            "action": "create", "root_lot": None, "rule": rule, "yarn_row": yarn_row,
-            "role": role, "ambiguous": False, "candidates": [],
-        }
-
-    # Secondary yarn: find waiting lots
-    if po_root_lot and _lot_is_waiting_for(po_root_lot, item_code):
-        return {
-            "action": "reuse", "root_lot": po_root_lot, "rule": rule,
-            "yarn_row": yarn_row, "role": role, "ambiguous": False,
-            "candidates": [po_root_lot],
-        }
-
-    candidates = _open_lots_waiting_for(product, item_code)
-    if len(candidates) == 1:
-        return {
-            "action": "reuse", "root_lot": candidates[0], "rule": rule,
-            "yarn_row": yarn_row, "role": role, "ambiguous": False,
-            "candidates": candidates,
-        }
-
-    if len(candidates) == 0:
-        return {
-            "action": "hold", "root_lot": None, "rule": rule, "yarn_row": yarn_row,
-            "role": role, "ambiguous": False, "candidates": [],
-        }
-
-    # Multiple waiting lots: FIFO
-    ordered = _order_lots_fifo(candidates)
-    oldest = ordered[0]
-    same_day_tie = _same_day_tie(ordered)
-
-    return {
-        "action": "reuse", "root_lot": oldest, "rule": rule, "yarn_row": yarn_row,
-        "role": role, "ambiguous": bool(same_day_tie),
-        "candidates": ordered,
-    }
-
-
-def _lot_is_waiting_for(root_lot, item_code):
-    rl = frappe.db.get_value(
-        "Root Lot", root_lot, ["intake_complete", "product"], as_dict=True
-    )
-    if not rl or rl.intake_complete:
-        return False
-    has = frappe.db.exists("Lot Receipt", {"parent": root_lot, "yarn_item": item_code})
-    return not has
-
-
-def _open_lots_waiting_for(product, item_code):
-    rule = frappe.db.get_value("Lot Naming Rule", {"product": product, "active": 1}, "name")
-    if not rule:
-        return []
-    open_lots = frappe.get_all(
+    lots = frappe.get_all(
         "Root Lot",
-        filters={"naming_rule": rule, "intake_complete": 0},
-        fields=["name"],
-        order_by="creation asc",
+        filters={"naming_rule": rule.name, "status": "Open",
+                 "intake_complete": 0},
+        pluck="name", order_by="creation asc",
     )
-    waiting = []
-    for lot in open_lots:
-        has = frappe.db.exists("Lot Receipt", {"parent": lot.name, "yarn_item": item_code})
-        if not has:
-            waiting.append(lot.name)
-    return waiting
+    for lot in lots:
+        already = frappe.get_all(
+            "Lot Receipt",
+            filters={"parent": lot, "yarn_item": item_code}, limit=1)
+        if not already:
+            return {"action": "reuse", "root_lot": lot,
+                    "rule": rule, "yarn_row": yarn_row}
+    return {"action": "blocked", "rule": rule, "yarn_row": yarn_row}
 
 
-def _order_lots_fifo(lot_names):
-    rows = frappe.get_all(
-        "Root Lot",
-        filters={"name": ["in", lot_names]},
-        fields=["name", "creation"],
-        order_by="creation asc",
-    )
-    return [r.name for r in rows]
-
-
-def _same_day_tie(ordered_lot_names):
-    if len(ordered_lot_names) < 2:
-        return False
-    rows = frappe.get_all(
-        "Root Lot",
-        filters={"name": ["in", ordered_lot_names[:2]]},
-        fields=["name", "creation"],
-    )
-    days = {str(r.creation)[:10] for r in rows}
-    return len(days) == 1
-
-
-# ---------------------------------------------------------------------------
-# Hardcoded batch naming (no config patterns, no tokens)
-# ---------------------------------------------------------------------------
-
-def render_batch_name(lot_code, stage, abbr=None, color_abbr=None):
-    """Build batch name from lot code + stage + abbr + color.
-
-    Hardcoded patterns (no config):
-      NT: {lot}-{abbr}-NT
-      DY: {lot}-{abbr}-{color}-DY
-      WV: {lot}-WV
-      CT: {lot}-CT
-    """
-    if not lot_code:
-        return None
-
+def render_batch_name(lot_code, stage, abbr=None, color=None):
+    """Hardcoded V2 naming — no user-editable tokens.
+    NT: MV/BA/0726/01-A-NT   DY: MV/BA/0726/01-A-BK-DY
+    WV: MV/BA/0726/01-WV     CT: MV/BA/0726/01-CT"""
     if stage == "NT":
-        return f"{lot_code}-{abbr}-NT" if abbr else f"{lot_code}-NT"
-    elif stage == "DY":
-        if abbr and color_abbr:
-            return f"{lot_code}-{abbr}-{color_abbr}-DY"
-        elif abbr:
-            return f"{lot_code}-{abbr}-DY"
-        else:
-            return f"{lot_code}-DY"
-    elif stage == "WV":
-        return f"{lot_code}-WV"
-    elif stage == "CT":
-        return f"{lot_code}-CT"
-    else:
-        return f"{lot_code}-{stage}"
-
-
-# ---------------------------------------------------------------------------
-# Item helpers
-# ---------------------------------------------------------------------------
-
-def extract_base_yarn_item(item_code):
-    """Strip -DYE-, -DY-, -CT suffixes to get greige item code."""
-    if not item_code:
-        return None
-    m = re.match(
-        r"(.*?-(?:CN|RM|WL|SLK|YRN|POL)?)(?:-DYE|-DY|-CT)?(?:-[A-Z]{2,})?$",
-        item_code,
-    )
-    if m:
-        return m.group(1).rstrip("-")
-    return item_code
+        return f"{lot_code}-{abbr}-NT"
+    if stage == "DY":
+        return (f"{lot_code}-{abbr}-{color}-DY" if color
+                else f"{lot_code}-{abbr}-DY")
+    return f"{lot_code}-{stage}"
 
 
 def color_abbr_for_item(item_code):
-    """Extract color abbreviation from a dyed item code."""
-    if not item_code:
-        return None
-    # Try item variant attribute first
+    """Short colour code for DY batch names. Tries the Item's variant
+    attribute (Colour/Color), then its abbreviation; falls back to a token
+    from the item code; never raises."""
     try:
-        attr = frappe.db.get_value(
+        attr = frappe.get_all(
             "Item Variant Attribute",
-            {"parent": item_code, "attribute": ["like", "%Colour%"]},
-            "attribute_value",
-        )
-        if not attr:
-            attr = frappe.db.get_value(
-                "Item Variant Attribute",
-                {"parent": item_code, "attribute": ["like", "%Color%"]},
-                "attribute_value",
-            )
+            filters={"parent": item_code,
+                     "attribute": ["in", ["Colour", "Color"]]},
+            fields=["attribute", "attribute_value"], limit=1)
         if attr:
-            abbr = frappe.db.get_value("Item Attribute Value", {"attribute_value": attr}, "abbr")
-            if abbr:
-                return abbr.upper()
+            val = attr[0].attribute_value
+            abbr = frappe.db.get_value(
+                "Item Attribute Value",
+                {"parent": attr[0].attribute, "attribute_value": val},
+                "abbr")
+            return (abbr or val or "CL")[:4].upper()
     except Exception:
         pass
+    # fallback: last short token of the item code (e.g. ...-BK-DY-CN -> BK)
+    for token in reversed((item_code or "").split("-")):
+        if 1 < len(token) <= 3 and token.isalpha():
+            return token.upper()
+    return "CL"
 
-    # Trailing segment after -DYE- or -DY-
-    m = re.search(r"-(?:DYE|DY)-([A-Z0-9]{2,})$", item_code.upper())
-    if m:
-        return m.group(1)
 
-    # Fallback
-    return None
+def get_flow_stages():
+    """Stage columns for the flow chart. Reads the site's Lot Process Stage
+    doctype if usable, else falls back to the default 8-stage sequence."""
+    if frappe.db.exists("DocType", "Lot Process Stage"):
+        try:
+            meta = frappe.get_meta("Lot Process Stage")
+            code_f = next((f for f in ("stage_code", "code", "abbr")
+                           if meta.get_field(f)), None)
+            label_f = next((f for f in ("stage_name", "label", "title")
+                            if meta.get_field(f)), None)
+            seq_f = next((f for f in ("sequence", "idx", "order")
+                          if meta.get_field(f)), None)
+            if code_f:
+                rows = frappe.get_all(
+                    "Lot Process Stage",
+                    fields=list({code_f, label_f or code_f}),
+                    order_by=f"{seq_f} asc" if seq_f else "creation asc")
+                out = [(r.get(code_f), r.get(label_f) or r.get(code_f))
+                       for r in rows if r.get(code_f)]
+                if out:
+                    return out
+        except Exception:
+            pass
+    return DEFAULT_STAGE_LABELS

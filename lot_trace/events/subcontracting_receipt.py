@@ -1,128 +1,79 @@
 # -*- coding: utf-8 -*-
-# Phase 6.2 HOTFIX — Subcontracting Receipt handler (canonical).
-# All hook names present (before_submit, on_submit, on_cancel, before_cancel)
-# so any hooks.py variant works without AttributeError.
+# V7 — Subcontracting Receipt hooks.
+# The root lot is AUTO-RESOLVED from the consumed supplied batch
+# (Batch.custom_root_lot) — the user never picks a lot manually.
+# Consumed stage NT -> produced batch is DY (dyeing job).
+# Consumed stage DY -> produced batch is WV (weaving job).
 
 import frappe
 
-from lot_trace.events import resolver_v2
-from lot_trace.events import lot_factory_v2
+from lot_trace.events import resolver_v2, lot_factory_v2
+
+_NEXT = {"NT": "DY", "DY": "WV", "WV": "CT"}
 
 
 def before_submit(doc, method=None):
-    """Auto-resolve lot from consumed greige batch, create DY/CT batches."""
-    for row in doc.items:
-        if not _is_processed_item(row.item_code):
+    consumed = _consumed_lot_and_stage(doc)
+    if not consumed:
+        return
+    root_lot, consumed_stage, consumed_item = consumed
+    produced_stage = _NEXT.get(consumed_stage, "DY")
+    lot_code = frappe.db.get_value("Root Lot", root_lot, "lot_code") or root_lot
+
+    touched = False
+    for item in doc.items:
+        if item.get("batch_no"):
             continue
-        stage = "CT" if _is_cut_item(row.item_code) else "DY"
-        root_lot, yarn_row = _resolve_lot_for_row(doc, row)
-        if not root_lot:
-            frappe.throw(
-                f"Row {row.idx}: could not auto-resolve the lot for "
-                f"{row.item_code}. Ensure the consumed greige batch is listed "
-                f"in Supplied Items, or set Root Lot on the row."
-            )
-        lot_code = frappe.db.get_value("Root Lot", root_lot, "lot_code") or root_lot
-        abbr = (yarn_row or {}).get("item_abbr")
-        color = resolver_v2.color_abbr_for_item(row.item_code) if stage == "DY" else None
-        batch_name = resolver_v2.render_batch_name(
-            lot_code, stage, abbr=abbr, color_abbr=color
-        )
-        lot_factory_v2.ensure_batch(batch_name, row.item_code, root_lot, stage=stage)
-        row.batch_no = batch_name
-        frappe.db.set_value("Root Lot", root_lot, "current_stage", stage)
+        if produced_stage == "DY":
+            _, yarn_row = resolver_v2.find_naming_rule_for_item(consumed_item)
+            abbr = yarn_row.item_abbr if yarn_row else "A"
+            color = resolver_v2.color_abbr_for_item(item.item_code)
+            batch = resolver_v2.render_batch_name(
+                lot_code, "DY", abbr=abbr, color=color)
+        else:
+            batch = resolver_v2.render_batch_name(lot_code, produced_stage)
+        lot_factory_v2.ensure_batch(
+            batch, item.item_code, root_lot, produced_stage)
+        item.batch_no = batch
+        if hasattr(item, "custom_root_lot"):
+            item.custom_root_lot = root_lot
+        touched = True
+
+    if touched:
+        doc.flags.lot_trace_lot = root_lot
+        doc.flags.lot_trace_stage = produced_stage
+
+
+def _consumed_lot_and_stage(doc):
+    """First consumed supplied batch that belongs to a Root Lot decides."""
+    for row in (doc.get("supplied_items") or []):
+        batch = row.get("batch_no")
+        if not batch:
+            continue
+        info = frappe.db.get_value(
+            "Batch", batch, ["custom_root_lot", "custom_stage", "item"],
+            as_dict=True)
+        if info and info.custom_root_lot:
+            return (info.custom_root_lot,
+                    info.custom_stage or "NT", info.item)
+    return None
 
 
 def on_submit(doc, method=None):
-    """Compatibility stub — work happens in before_submit."""
-    pass
+    root_lot = doc.flags.get("lot_trace_lot")
+    if root_lot:
+        lot_factory_v2.set_current_stage(
+            root_lot, doc.flags.get("lot_trace_stage") or "DY")
+        lot_factory_v2.recompute_totals(root_lot)
 
 
 def before_cancel(doc, method=None):
-    """Skip circular link check against our tracking doctypes."""
     doc.flags.ignore_links = True
     doc.ignore_linked_doctypes = ["Root Lot", "Batch", "Lot Receipt"]
 
 
 def on_cancel(doc, method=None):
-    """Roll the lot's stage back to DY/NT based on remaining batches."""
-    for row in doc.items:
-        if not row.get("batch_no"):
-            continue
-        rl = frappe.db.get_value("Batch", row.batch_no, "custom_root_lot")
-        if rl and frappe.db.exists("Root Lot", rl):
-            frappe.db.set_value("Root Lot", rl, "current_stage", "NT")
-
-
-# ---------------------------------------------------------------------------
-# Lot resolution
-# ---------------------------------------------------------------------------
-
-def _resolve_lot_for_row(doc, row):
-    root_lot = _root_lot_from_consumed(doc, row)
-    if root_lot:
-        return root_lot, _yarn_row_for(root_lot, row.item_code)
-
-    override = row.get("custom_root_lot")
-    if override:
-        return override, _yarn_row_for(override, row.item_code)
-
-    return None, None
-
-
-def _root_lot_from_consumed(doc, row):
-    base_out = resolver_v2.extract_base_yarn_item(row.item_code)
-    supplied = getattr(doc, "supplied_items", None) or []
-    consumed = [
-        (s.get("rm_item_code") or s.get("item_code"), s.get("batch_no"))
-        for s in supplied if s.get("batch_no")
-    ]
-
-    for item_code, batch_no in consumed:
-        if resolver_v2.extract_base_yarn_item(item_code) == base_out:
-            rl = frappe.db.get_value("Batch", batch_no, "custom_root_lot")
-            if rl:
-                return rl
-
-    lots = set()
-    for _item, batch_no in consumed:
-        rl = frappe.db.get_value("Batch", batch_no, "custom_root_lot")
-        if rl:
-            lots.add(rl)
-    if len(lots) == 1:
-        return next(iter(lots))
-    return None
-
-
-def _yarn_row_for(root_lot, output_item_code):
-    rule = frappe.db.get_value("Root Lot", root_lot, "naming_rule")
-    if not rule:
-        return None
-    base = resolver_v2.extract_base_yarn_item(output_item_code)
-    yarns = frappe.get_all(
-        "Lot Naming Rule Yarn",
-        filters={"parent": rule, "yarn_item": base},
-        fields=["yarn_item", "role", "item_abbr"],
-    )
-    if yarns:
-        return yarns[0]
-    yarns = frappe.get_all(
-        "Lot Naming Rule Yarn",
-        filters={"parent": rule, "role": "Primary"},
-        fields=["yarn_item", "role", "item_abbr"],
-    )
-    return yarns[0] if yarns else None
-
-
-def _is_processed_item(item_code):
-    return _is_dyed_item(item_code) or _is_cut_item(item_code)
-
-
-def _is_dyed_item(item_code):
-    up = (item_code or "").upper()
-    return "-DYE" in up or "-DY" in up
-
-
-def _is_cut_item(item_code):
-    up = (item_code or "").upper()
-    return "-CT" in up or "CUT" in up
+    lots = {frappe.db.get_value("Batch", i.batch_no, "custom_root_lot")
+            for i in doc.items if i.get("batch_no")}
+    for lot in filter(None, lots):
+        lot_factory_v2.recompute_totals(lot)

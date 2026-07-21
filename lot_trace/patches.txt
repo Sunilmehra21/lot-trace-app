@@ -1,8 +1,3 @@
 [pre_model_sync]
 
 [post_model_sync]
-lot_trace.patches.v6_0_add_custom_fields
-lot_trace.patches.v6_0_extend_root_lot
-lot_trace.patches.v6_1_simplify_profile_to_rule
-lot_trace.patches.v6_2_repair_fields
-lot_trace.patches.v6_3_dedupe_root_lot_fields

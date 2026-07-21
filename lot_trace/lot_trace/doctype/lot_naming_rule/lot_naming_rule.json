@@ -1,15 +1,14 @@
 {
  "actions": [],
- "autoname": "format:LNR-{####}",
- "creation": "2026-07-19 00:00:00.000000",
+ "autoname": "format:LNR-{#####}",
+ "creation": "2026-07-21 10:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
- "title_field": "product",
  "field_order": [
   "product",
-  "active",
-  "column_break_setup",
+  "column_break_main",
   "lot_code_prefix",
+  "active",
   "section_yarns",
   "yarns"
  ],
@@ -17,33 +16,33 @@
   {
    "fieldname": "product",
    "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "bold": 1,
    "label": "Product (Finished Good)",
    "options": "Item",
    "reqd": 1,
-   "unique": 1,
+   "bold": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
    "description": "One rule per finished product. Stays visible after save."
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lot_code_prefix",
+   "fieldtype": "Data",
+   "label": "Lot Code Prefix",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Fixed prefix (e.g., MV/BG). Serial is auto-generated: MV/BG/0726/01, 02, 03..."
   },
   {
    "default": "1",
    "fieldname": "active",
    "fieldtype": "Check",
+   "label": "Active",
    "in_list_view": 1,
-   "label": "Active"
-  },
-  {
-   "fieldname": "column_break_setup",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "MV/BG",
-   "fieldname": "lot_code_prefix",
-   "fieldtype": "Data",
-   "label": "Lot Code Prefix",
-   "reqd": 1,
-   "description": "Fixed prefix (e.g., MV/BG). Serial is auto-generated: MV/BG/0726/01, 02, 03..."
+   "in_standard_filter": 1
   },
   {
    "fieldname": "section_yarns",
@@ -58,37 +57,29 @@
    "reqd": 1
   }
  ],
- "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-20 00:00:00.000000",
+ "modified": "2026-07-21 10:00:00.000000",
+ "modified_by": "Administrator",
  "module": "Lot Trace",
  "name": "Lot Naming Rule",
  "owner": "Administrator",
  "permissions": [
   {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
+   "create": 1, "delete": 1, "email": 1, "export": 1, "print": 1,
+   "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1
   },
   {
-   "create": 1,
-   "delete": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Manufacturing Manager",
-   "share": 1,
-   "write": 1
+   "create": 1, "delete": 1, "email": 1, "export": 1, "print": 1,
+   "read": 1, "report": 1, "role": "Stock Manager", "share": 1, "write": 1
+  },
+  {
+   "read": 1, "report": 1, "role": "Stock User"
   }
  ],
+ "search_fields": "product,lot_code_prefix",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "title_field": "product",
+ "track_changes": 1
 }
