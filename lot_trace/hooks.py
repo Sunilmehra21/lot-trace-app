@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-# Phase 6.2 HOTFIX — hooks.py doc_events block.
-#
-# REPLACE the entire doc_events dict in your lot_trace/hooks.py with this.
-# (Bug 2 happened because hooks still referenced on_submit handlers that the
-# V2 files didn't define. The new handler files define every hook name below,
-# so this wiring can never raise AttributeError again.)
+
+app_name = "lot_trace"
+app_title = "Lot Trace"
+app_publisher = "Rangsutra"
+app_description = "Lot traceability for textile manufacturing (yarn - dyeing - weaving - cutting)"
+app_email = "sunil.mehra@rangsutra.com"
+app_license = "MIT"
 
 doc_events = {
     "Purchase Receipt": {
