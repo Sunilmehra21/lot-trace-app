@@ -25,3 +25,13 @@ doc_events = {
         "on_trash": "lot_trace.events.root_lot_cleanup.on_trash",
     },
 }
+# --- Hotfix 6.3: Root Lot buttons ---------------------------------------
+# LIST view -> "Create from Stock" + bulk "Delete Lot (cleanup)"
+doctype_list_js = {
+    "Root Lot": "public/js/root_lot_list.js",
+}
+
+# FORM view -> single "Delete Lot (cleanup)" button
+doctype_js = {
+    "Root Lot": "public/js/root_lot_form.js",
+}
