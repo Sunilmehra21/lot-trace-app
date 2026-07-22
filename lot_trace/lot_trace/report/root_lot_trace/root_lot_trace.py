@@ -1,85 +1,80 @@
+# -*- coding: utf-8 -*-
+# Root Lot Trace report: every stock movement of every batch of a lot,
+# stage by stage. Read-only SLE (requirement #4).
+
 import frappe
 from frappe import _
 from frappe.utils import flt
 
-from lot_trace.api.lot import get_lot_trace
-
-PARTY_FIELD = {
-    "Purchase Receipt": "supplier",
-    "Purchase Invoice": "supplier",
-    "Subcontracting Receipt": "supplier",
-    "Stock Entry": "supplier",
-    "Delivery Note": "customer",
-    "Sales Invoice": "customer",
-}
-
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
-    if not filters.root_lot:
-        frappe.throw(_("Please select a Root Lot"))
-
-    raw = get_lot_trace(filters.root_lot)
-    if not raw:
-        return get_columns(), []
-
-    # ── Per-batch running balance (B5 fix) ───────────────────────────
-    # sort by date/time/name (same order as get_lot_trace returns)
-    # accumulate balance PER BATCH, not per item-warehouse.
-    batch_balance = {}   # {batch_no: running_balance}
-    rows = []
-    for sle in raw:
-        bn = sle.get("batch_no") or ""
-        batch_balance[bn] = round(
-            flt(batch_balance.get(bn, 0)) + flt(sle.get("actual_qty", 0)), 3)
-
-        party = add_party(sle)
-        rows.append({
-            "date": sle.get("posting_date"),
-            "stage": sle.get("process_stage"),
-            "batch": bn,
-            "item": sle.get("item_code"),
-            "warehouse": sle.get("warehouse"),
-            "voucher_type": sle.get("voucher_type"),
-            "voucher": sle.get("voucher_no"),
-            "party": party,
-            "qty": flt(sle.get("actual_qty")),
-            "balance": batch_balance[bn],
-            "uom": sle.get("stock_uom"),
-        })
-
     columns = get_columns()
-    return columns, rows
-
-
-def add_party(sle):
-    vtype = sle.get("voucher_type")
-    vno = sle.get("voucher_no")
-    field = PARTY_FIELD.get(vtype)
-    if not field or not vno:
-        return ""
-    try:
-        return frappe.db.get_value(vtype, vno, field) or ""
-    except Exception:
-        return ""
+    data = get_data(filters)
+    return columns, data
 
 
 def get_columns():
     return [
-        {"label": _("Date"), "fieldname": "date", "fieldtype": "Date", "width": 90},
-        {"label": _("Stage"), "fieldname": "stage", "fieldtype": "Link",
-         "options": "Lot Process Stage", "width": 70},
-        {"label": _("Batch"), "fieldname": "batch", "fieldtype": "Link",
-         "options": "Batch", "width": 200},
-        {"label": _("Item"), "fieldname": "item", "fieldtype": "Link",
-         "options": "Item", "width": 180},
-        {"label": _("Warehouse"), "fieldname": "warehouse", "fieldtype": "Link",
-         "options": "Warehouse", "width": 140},
-        {"label": _("Voucher Type"), "fieldname": "voucher_type", "width": 130},
-        {"label": _("Voucher"), "fieldname": "voucher", "fieldtype": "Dynamic Link",
-         "options": "voucher_type", "width": 160},
-        {"label": _("Party"), "fieldname": "party", "width": 140},
-        {"label": _("Qty +/−"), "fieldname": "qty", "fieldtype": "Float", "width": 100},
-        {"label": _("Balance"), "fieldname": "balance", "fieldtype": "Float", "width": 100},
-        {"label": _("UOM"), "fieldname": "uom", "width": 60},
+        {"fieldname": "root_lot", "label": _("Root Lot"),
+         "fieldtype": "Link", "options": "Root Lot", "width": 140},
+        {"fieldname": "process_stage", "label": _("Stage"),
+         "fieldtype": "Link", "options": "Lot Process Stage", "width": 70},
+        {"fieldname": "batch_no", "label": _("Batch"),
+         "fieldtype": "Link", "options": "Batch", "width": 190},
+        {"fieldname": "item_code", "label": _("Item"),
+         "fieldtype": "Link", "options": "Item", "width": 150},
+        {"fieldname": "posting_date", "label": _("Date"),
+         "fieldtype": "Date", "width": 100},
+        {"fieldname": "voucher_type", "label": _("Voucher Type"),
+         "fieldtype": "Data", "width": 140},
+        {"fieldname": "voucher_no", "label": _("Voucher"),
+         "fieldtype": "Dynamic Link", "options": "voucher_type", "width": 170},
+        {"fieldname": "warehouse", "label": _("Warehouse"),
+         "fieldtype": "Link", "options": "Warehouse", "width": 150},
+        {"fieldname": "qty", "label": _("Qty"),
+         "fieldtype": "Float", "width": 100},
+        {"fieldname": "uom", "label": _("UOM"),
+         "fieldtype": "Data", "width": 70},
+        {"fieldname": "running_balance", "label": _("Batch Balance"),
+         "fieldtype": "Float", "width": 110},
     ]
+
+
+def get_data(filters):
+    conditions = ["b.root_lot IS NOT NULL", "b.root_lot != ''",
+                  "sle.is_cancelled = 0"]
+    params = {}
+
+    if filters.get("root_lot"):
+        conditions.append("b.root_lot = %(root_lot)s")
+        params["root_lot"] = filters.root_lot
+    if filters.get("process_stage"):
+        conditions.append("b.process_stage = %(process_stage)s")
+        params["process_stage"] = filters.process_stage
+    if filters.get("from_date"):
+        conditions.append("sle.posting_date >= %(from_date)s")
+        params["from_date"] = filters.from_date
+    if filters.get("to_date"):
+        conditions.append("sle.posting_date <= %(to_date)s")
+        params["to_date"] = filters.to_date
+
+    rows = frappe.db.sql("""
+        SELECT b.root_lot, b.process_stage, sle.batch_no, sle.item_code,
+               sle.posting_date, sle.posting_time, sle.voucher_type,
+               sle.voucher_no, sle.warehouse, sle.actual_qty AS qty,
+               sle.stock_uom AS uom
+        FROM `tabStock Ledger Entry` sle
+        JOIN `tabBatch` b ON b.name = sle.batch_no
+        WHERE {conditions}
+        ORDER BY b.root_lot, b.process_stage,
+                 sle.posting_date, sle.posting_time, sle.name
+    """.format(conditions=" AND ".join(conditions)), params, as_dict=True)
+
+    balances = {}
+    for r in rows:
+        key = r.batch_no
+        balances[key] = balances.get(key, 0) + flt(r.qty)
+        r.running_balance = round(balances[key], 3)
+        r.qty = flt(r.qty)
+    return rows

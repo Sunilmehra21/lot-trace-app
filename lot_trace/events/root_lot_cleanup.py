@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# V7 — Root Lot cancel/delete cleanup (breaks circular link checks).
+# Root Lot cancel / delete cleanup.
 
 import frappe
 
@@ -11,9 +11,9 @@ def before_cancel(doc, method=None):
 
 
 def on_trash(doc, method=None):
-    # Detach batches — they may hold posted stock, so they are KEPT.
+    """Detach batches when a Root Lot is deleted (batches are KEPT)."""
     for b in frappe.get_all(
-            "Batch", filters={"custom_root_lot": doc.name}, pluck="name"):
+            "Batch", filters={"root_lot": doc.name}, pluck="name"):
         frappe.db.set_value("Batch", b, {
-            "custom_root_lot": None, "custom_stage": None,
+            "root_lot": None, "process_stage": None,
         }, update_modified=False)

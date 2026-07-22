@@ -1,183 +1,119 @@
+// Lot Flow Chart: one row per Root Lot, one column per process stage.
+// Data source: lot_trace.api.flow.get_lot_flow
+
 frappe.pages["lot-flow"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
-		title: __("Lot Flow Chart"),
+		title: __("Lot Flow"),
 		single_column: true,
 	});
-	new LotFlowChart(page);
-};
 
-const LOT_COLORS = ["#5e35b1", "#00796b", "#ad5700", "#1565c0", "#ad1457",
-	"#37474f", "#6a1b9a", "#2e7d32"];
+	const state = { sales_order: null, product: null, root_lot: null };
 
-class LotFlowChart {
-	constructor(page) {
-		this.page = page;
-		this.make_filters();
-		this.$body = $(`<div class="lfc-wrap">
-			<div class="lfc-empty text-muted">
-				${__("Pick a Sales Order / Product / Root Lot and press Refresh")}</div>
-		</div>`).appendTo(this.page.main);
-		this.refresh();
+	page.add_field({
+		fieldname: "sales_order", label: __("Sales Order"),
+		fieldtype: "Link", options: "Sales Order",
+		change() { state.sales_order = this.get_value(); load(); },
+	});
+	page.add_field({
+		fieldname: "product", label: __("Product"),
+		fieldtype: "Link", options: "Item",
+		change() { state.product = this.get_value(); load(); },
+	});
+	page.add_field({
+		fieldname: "root_lot", label: __("Root Lot"),
+		fieldtype: "Link", options: "Root Lot",
+		change() { state.root_lot = this.get_value(); load(); },
+	});
+	page.set_secondary_action(__("Refresh"), () => load(), "refresh");
+
+	const $body = $('<div class="lot-flow-body" style="padding:15px;"></div>')
+		.appendTo(page.main);
+
+	function badge(status) {
+		const color = { "Open": "blue", "In Process": "orange",
+			"Completed": "green", "Cancelled": "red" }[status] || "gray";
+		return `<span class="indicator-pill ${color}">${frappe.utils.escape_html(status || "")}</span>`;
 	}
 
-	make_filters() {
-		this.so_field = this.page.add_field({
-			fieldname: "sales_order",
-			label: __("Sales Order"),
-			fieldtype: "Link",
-			options: "Sales Order",
-			change: () => this.refresh(),
+	function cellHtml(cell) {
+		if (!cell) return '<span class="text-muted">—</span>';
+		let html = `<div style="line-height:1.35">
+			<div><b>${cell.balance}</b> <small>${frappe.utils.escape_html(cell.uom || "")}</small></div>
+			<div class="small text-muted">${__("In")} ${cell.in_qty} · ${__("Out")} ${cell.out_qty}</div>`;
+		if (cell.first_voucher) {
+			const v = cell.first_voucher;
+			const more = cell.voucher_count > 1
+				? ` <span class="text-muted">+${cell.voucher_count - 1}</span>` : "";
+			html += `<div class="small">
+				<a href="/app/${frappe.router.slug(v.voucher_type)}/${encodeURIComponent(v.voucher_no)}">
+				${frappe.utils.escape_html(v.voucher_no)}</a>${more}</div>`;
+		}
+		(cell.sold_to || []).forEach((s) => {
+			html += `<div class="small text-warning">@ ${frappe.utils.escape_html(s.party)}: ${s.qty}</div>`;
 		});
-		this.product_field = this.page.add_field({
-			fieldname: "product",
-			label: __("Product"),
-			fieldtype: "Link",
-			options: "Item",
-			change: () => this.refresh(),
-		});
-		this.lot_field = this.page.add_field({
-			fieldname: "root_lot",
-			label: __("Root Lot"),
-			fieldtype: "Link",
-			options: "Root Lot",
-			change: () => this.refresh(),
-		});
-		this.page.set_primary_action(__("Refresh"), () => this.refresh());
+		return html + "</div>";
 	}
 
-	refresh() {
+	function load() {
 		frappe.call({
 			method: "lot_trace.api.flow.get_lot_flow",
-			args: {
-				sales_order: this.so_field.get_value() || null,
-				product: this.product_field.get_value() || null,
-				root_lot: this.lot_field.get_value() || null,
-			},
-			callback: (r) => this.render(r.message),
+			args: state,
+			freeze: false,
+			callback(r) { render(r.message || { stages: [], rows: [], totals: {} }); },
 		});
 	}
 
-	voucher_url(v) {
-		return `/app/${frappe.router.slug(v.voucher_type)}/${encodeURIComponent(v.voucher_no)}`;
-	}
+	function render(data) {
+		const t = data.totals || {};
+		let html = `
+		<div class="row" style="margin-bottom:15px;">
+			${[["yarn_received", __("Yarn Received (kg)")],
+			   ["yarn_in_process", __("Yarn In Process (kg)")],
+			   ["weaved_pcs", __("Weaved (pcs)")],
+			   ["fg_qty", __("Finished Goods")],
+			   ["dispatched", __("Dispatched")],
+			   ["open_exceptions", __("Open Exceptions")]].map(([k, label]) => `
+				<div class="col-sm-2">
+					<div class="frappe-card" style="padding:10px;text-align:center;">
+						<div style="font-size:1.3em;font-weight:600;">${t[k] != null ? t[k] : 0}</div>
+						<div class="small text-muted">${label}</div>
+					</div>
+				</div>`).join("")}
+		</div>`;
 
-	show_vouchers_dialog(lot, stage, vouchers) {
-		// "+N" click: list ALL the stage's transactions, each opens its doc
-		const rows = vouchers
-			.map(
-				(v) => `<div class="lfc-dlgrow">
-					<a href="${this.voucher_url(v)}" target="_blank">
-						${frappe.utils.escape_html(v.voucher_no)}</a>
-					<span class="lfc-dlgtype">${frappe.utils.escape_html(__(v.voucher_type))}</span>
-					<span class="lfc-dlgqty ${v.qty >= 0 ? "lfc-pos" : "lfc-neg"}">
-						${v.qty >= 0 ? "+" : ""}${v.qty}</span>
-					<span class="lfc-dlgdate">${frappe.datetime.str_to_user(v.date)}</span>
-				</div>`
-			)
-			.join("");
-		const d = new frappe.ui.Dialog({
-			title: __("{0} — {1}: {2} transactions", [lot, stage, vouchers.length]),
-			size: "small",
-		});
-		d.$body.html(`<div class="lfc-dlg">${rows}</div>`);
-		d.show();
-	}
-
-	render(data) {
-		this.$body.empty();
-		if (!data || !data.rows.length) {
-			this.$body.append(`<div class="lfc-empty text-muted">
-				${__("No root lots found for these filters")}</div>`);
+		if (!data.rows.length) {
+			html += `<div class="text-muted" style="padding:30px;text-align:center;">
+				${__("No lots found. Adjust filters or receive yarn to create lots.")}</div>`;
+			$body.html(html);
 			return;
 		}
-		const stages = data.stages;
-		const cols = `170px repeat(${stages.length}, minmax(130px, 1fr))`;
 
-		const $board = $(`<div class="lfc-board"></div>`).appendTo(this.$body);
+		html += `<div style="overflow-x:auto;"><table class="table table-bordered" style="min-width:900px;">
+			<thead><tr>
+				<th>${__("Lot")}</th><th>${__("Product")}</th><th>${__("Status")}</th>
+				${data.stages.map((s) =>
+					`<th title="${frappe.utils.escape_html(s.stage_name)}">${frappe.utils.escape_html(s.name)}</th>`
+				).join("")}
+			</tr></thead><tbody>`;
 
-		// stage header row
-		const $head = $(`<div class="lfc-grid" style="grid-template-columns:${cols}">
-			<div></div></div>`).appendTo($board);
-		stages.forEach((s, i) => {
-			$head.append(`<div class="lfc-stagehead ${s.name === "FG" ? "lfc-fin" : ""}
-				${["DY", "WV"].includes(s.name) ? "lfc-ext" : ""}">
-				${i + 1} · ${frappe.utils.escape_html(s.stage_name || s.name)}
-				<small>${frappe.utils.escape_html(s.name)}</small></div>`);
-		});
-
-		// one row per lot
-		data.rows.forEach((row, idx) => {
-			const color = LOT_COLORS[idx % LOT_COLORS.length];
-			const $row = $(`<div class="lfc-grid" style="grid-template-columns:${cols}">
-			</div>`).appendTo($board);
+		data.rows.forEach((row) => {
 			const exc = row.open_exceptions
-				? `<span class="lfc-exc">⚠ ${row.open_exceptions}</span>` : "";
-			$row.append(`
-				<div class="lfc-lotlabel" style="background:${color}">
-					<a href="/app/root-lot/${encodeURIComponent(row.lot)}">${frappe.utils.escape_html(row.lot)}</a>
-					<small>${frappe.utils.escape_html(row.supplier || "")}<br>
-					${__("Status")}: ${frappe.utils.escape_html(row.status || "")} ${exc}</small>
-				</div>`);
-
-			stages.forEach((s, si) => {
-				const c = row.cells[s.name];
-				if (!c || (!c.in_qty && !c.out_qty)) {
-					$row.append(`<div class="lfc-cell lfc-cellempty"></div>`);
-					return;
-				}
-				const vouchers = c.vouchers || (c.first_voucher ? [c.first_voucher] : []);
-				let doc = "";
-				if (vouchers.length) {
-					const first = vouchers[0];
-					const more =
-						vouchers.length > 1
-							? `<a class="lfc-more" href="#">+${vouchers.length - 1}</a>`
-							: "";
-					doc = `<span class="lfc-doc">
-						<a href="${this.voucher_url(first)}">${frappe.utils.escape_html(first.voucher_no)}</a>${more}</span>`;
-				}
-				const custody = (c.sold_to || [])
-					.map((st) => `<span class="lfc-cust">📍 ${frappe.utils.escape_html(st.party)} · ${st.qty}</span>`)
-					.join("");
-				const arrow = si < stages.length - 1 ? `<span class="lfc-arrow">➤</span>` : "";
-				const is_current = row.current_stage === s.name;
-				const $cell = $(`
-					<div class="lfc-cell ${is_current ? "lfc-current" : ""}" style="border-left-color:${color}">
-						<span class="lfc-batch">…${frappe.utils.escape_html(s.name)}</span>
-						<span class="lfc-qty"><b>${c.in_qty}</b> ${c.uom}
-							${c.balance !== c.in_qty ? ` · ${__("bal")} ${c.balance}` : ""}</span>
-						${custody}
-						${doc}
-						${is_current ? `<span class="lfc-chip">${__("CURRENT")}</span>` : ""}
-						${arrow}
-					</div>`);
-				$cell.find(".lfc-more").on("click", (e) => {
-					e.preventDefault();
-					this.show_vouchers_dialog(row.lot, s.name, vouchers);
-				});
-				$row.append($cell);
-			});
+				? ` <span class="indicator-pill red">${row.open_exceptions} !</span>` : "";
+			html += `<tr>
+				<td><a href="/app/root-lot/${encodeURIComponent(row.lot)}">${frappe.utils.escape_html(row.lot)}</a>${exc}
+					<div class="small text-muted">${row.received_qty} ${frappe.utils.escape_html(row.uom || "")}</div></td>
+				<td>${frappe.utils.escape_html(row.product || "")}
+					${row.sales_order ? `<div class="small"><a href="/app/sales-order/${encodeURIComponent(row.sales_order)}">${frappe.utils.escape_html(row.sales_order)}</a></div>` : ""}</td>
+				<td>${badge(row.status)}
+					<div class="small text-muted">${frappe.utils.escape_html(row.current_stage || "")}</div></td>
+				${data.stages.map((s) => `<td>${cellHtml(row.cells[s.name])}</td>`).join("")}
+			</tr>`;
 		});
 
-		// summary strip
-		const t = data.totals;
-		$(`<div class="lfc-summary">
-			<div class="lfc-sumcard"><h5>${__("Yarn received")}</h5>
-				<div class="lfc-big">${t.yarn_received} Kg</div>
-				<div class="lfc-sub">${data.rows.length} ${__("lots")}</div></div>
-			<div class="lfc-sumcard"><h5>${__("Yarn in process")}</h5>
-				<div class="lfc-big">${t.yarn_in_process} Kg</div>
-				<div class="lfc-sub">${__("NT + DY balances")}</div></div>
-			<div class="lfc-sumcard"><h5>${__("Weaved pcs received")}</h5>
-				<div class="lfc-big">${t.weaved_pcs} Pcs</div></div>
-			<div class="lfc-sumcard"><h5>${__("Finished goods")}</h5>
-				<div class="lfc-big">${t.fg_qty} Nos</div></div>
-			<div class="lfc-sumcard"><h5>${__("Dispatched")}</h5>
-				<div class="lfc-big">${t.dispatched} Nos</div></div>
-			<div class="lfc-sumcard"><h5>${__("Open exceptions")}</h5>
-				<div class="lfc-big" style="color:${t.open_exceptions ? "#b26a00" : "#2e7d32"}">
-					${t.open_exceptions}${t.open_exceptions ? " ⚠" : " ✓"}</div></div>
-		</div>`).appendTo($board);
+		html += "</tbody></table></div>";
+		$body.html(html);
 	}
-}
+
+	load();
+};

@@ -1,12 +1,13 @@
 {
  "actions": [],
- "creation": "2026-07-21 10:00:00.000000",
+ "creation": "2026-07-21 12:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
   "yarn_item",
   "item_abbr",
+  "supplier",
   "nt_batch",
   "received_kg",
   "source_doctype",
@@ -30,9 +31,17 @@
    "columns": 1
   },
   {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier",
+   "options": "Supplier",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
    "fieldname": "nt_batch",
    "fieldtype": "Link",
-   "label": "NT Batch",
+   "label": "Batch",
    "options": "Batch",
    "in_list_view": 1,
    "columns": 2
@@ -40,14 +49,15 @@
   {
    "fieldname": "received_kg",
    "fieldtype": "Float",
-   "label": "Received (Kg)",
+   "label": "Received Qty",
    "in_list_view": 1,
-   "columns": 2
+   "columns": 1
   },
   {
    "fieldname": "source_doctype",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "label": "Source Doctype",
+   "options": "DocType",
    "hidden": 1
   },
   {
@@ -60,7 +70,7 @@
   }
  ],
  "istable": 1,
- "modified": "2026-07-21 10:00:00.000000",
+ "modified": "2026-07-21 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Lot Trace",
  "name": "Lot Receipt",

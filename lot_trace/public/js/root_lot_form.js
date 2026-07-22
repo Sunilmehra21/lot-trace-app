@@ -1,9 +1,14 @@
-// V7 — Root Lot form: "Delete Lot (cleanup)" (Root Lot is not submittable,
-// so delete — not cancel — is the correct action).
+// Root Lot form: "Delete Lot (cleanup)" + "View Trace" buttons.
+// (Root Lot is not submittable, so delete — not cancel — is the removal action.)
 
 frappe.ui.form.on("Root Lot", {
     refresh(frm) {
         if (frm.is_new()) return;
+
+        frm.add_custom_button(__("View Trace"), () => {
+            frappe.set_route("lot-trace-tree", { root_lot: frm.doc.name });
+        });
+
         frm.add_custom_button(__("Delete Lot (cleanup)"), () => {
             frappe.confirm(
                 __("Delete this Root Lot? Its batches and stock documents are kept — only lot links are removed. This cannot be undone."),

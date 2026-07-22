@@ -1,96 +1,45 @@
 # -*- coding: utf-8 -*-
-# V7 — Data for the Lot Flow Chart and Order Lot Overview pages.
-# All numbers derive from Lot Receipts (child table) + live batch stock,
-# never from the removed legacy fields — this fixes the empty reports.
+# Order Lot Overview API: per-sales-order lot totals.
 
 import frappe
 from frappe.utils import flt
 
-from lot_trace.events import resolver_v2, lot_factory_v2
 
+@frappe.whitelist()
+def get_order_overview(sales_order=None, customer=None):
+    frappe.has_permission("Root Lot", "read", throw=True)
 
-def _lot_filters(sales_order=None, product=None, root_lot=None, status=None):
-    f = {}
+    filters = {}
     if sales_order:
-        f["sales_order"] = sales_order
-    if product:
-        f["product"] = product
-    if root_lot:
-        f["name"] = root_lot
-    if status:
-        f["status"] = status
-    return f
+        filters["sales_order"] = sales_order
 
-
-@frappe.whitelist()
-def get_flow_chart(sales_order=None, product=None, root_lot=None, **kwargs):
-    stages = resolver_v2.get_flow_stages()
     lots = frappe.get_all(
-        "Root Lot",
-        filters=_lot_filters(sales_order, product, root_lot),
-        fields=["name", "lot_code", "product", "status", "current_stage",
-                "sales_order", "total_yarn_received_kg"],
-        order_by="creation desc", limit_page_length=50)
+        "Root Lot", filters=filters,
+        fields=["name", "product", "sales_order", "status", "current_stage",
+                "received_qty", "uom", "yarn_in_process_qty", "weaved_pcs",
+                "fg_qty", "dispatched_qty", "intake_complete"],
+        order_by="sales_order, name")
 
-    summary = {"yarn_received_kg": 0, "in_process_kg": 0, "weaved_pcs": 0,
-               "finished_qty": 0, "dispatched_qty": 0,
-               "open_exceptions": 0, "lot_count": len(lots)}
-
+    orders = {}
     for lot in lots:
-        lot_factory_v2.recompute_totals(lot.name)  # always-fresh numbers
-        vals = frappe.db.get_value(
-            "Root Lot", lot.name,
-            ["total_yarn_received_kg", "yarn_in_process_kg",
-             "weaved_pcs_received", "finished_goods_qty", "dispatched_qty"],
-            as_dict=True)
-        lot.update(vals)
+        so = lot.sales_order or "(no sales order)"
+        if customer and so != "(no sales order)":
+            so_customer = frappe.db.get_value("Sales Order", so, "customer")
+            if so_customer != customer:
+                continue
+        bucket = orders.setdefault(so, {
+            "sales_order": so,
+            "customer": (frappe.db.get_value("Sales Order", so, "customer")
+                         if so != "(no sales order)" else None),
+            "lots": [],
+            "totals": {"received_qty": 0, "yarn_in_process_qty": 0,
+                       "weaved_pcs": 0, "fg_qty": 0, "dispatched_qty": 0},
+        })
+        bucket["lots"].append(lot)
+        for f in bucket["totals"]:
+            bucket["totals"][f] += flt(lot.get(f))
 
-        # per-stage balances for the grid cells
-        lot["stage_qty"] = {}
-        for code, _label in stages:
-            lot["stage_qty"][code] = lot_factory_v2.stage_balance(
-                lot.name, [code])
-
-        summary["yarn_received_kg"] += flt(vals.total_yarn_received_kg)
-        summary["in_process_kg"] += flt(vals.yarn_in_process_kg)
-        summary["weaved_pcs"] += flt(vals.weaved_pcs_received)
-        summary["finished_qty"] += flt(vals.finished_goods_qty)
-        summary["dispatched_qty"] += flt(vals.dispatched_qty)
-
-    if frappe.db.exists("DocType", "Lot Exception"):
-        ex_filters = {"docstatus": ["<", 2]}
-        if root_lot:
-            ex_filters["root_lot"] = root_lot
-        try:
-            summary["open_exceptions"] = frappe.db.count(
-                "Lot Exception", ex_filters)
-        except Exception:
-            summary["open_exceptions"] = 0
-
-    return {
-        "stages": [{"code": c, "label": l} for c, l in stages],
-        "lots": lots,
-        "summary": summary,
-    }
-
-
-@frappe.whitelist()
-def get_order_overview(sales_order=None, product=None, status=None, **kwargs):
-    lots = frappe.get_all(
-        "Root Lot",
-        filters=_lot_filters(sales_order, product, None, status),
-        fields=["name", "lot_code", "product", "sales_order", "end_customer",
-                "status", "current_stage", "intake_complete"],
-        order_by="creation desc", limit_page_length=200)
-
-    for lot in lots:
-        lot_factory_v2.recompute_totals(lot.name)
-        lot.update(frappe.db.get_value(
-            "Root Lot", lot.name,
-            ["total_yarn_received_kg", "yarn_in_process_kg",
-             "weaved_pcs_received", "finished_goods_qty", "dispatched_qty"],
-            as_dict=True))
-        lot["batch_count"] = frappe.db.count(
-            "Batch", {"custom_root_lot": lot.name})
-
-    return {"lots": lots}
+    for bucket in orders.values():
+        bucket["totals"] = {k: round(v, 2)
+                            for k, v in bucket["totals"].items()}
+    return list(orders.values())

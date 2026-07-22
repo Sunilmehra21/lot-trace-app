@@ -1,7 +1,6 @@
-// V7 — Lot Naming Rule form: lock identity fields once the rule has been
-// used to create a Root Lot. The server enforces this too (validate);
-// this JS just makes the lock visible instead of surprising the user
-// with an error on save. Only "Active" stays editable.
+// Lot Naming Rule — lock identity fields once the rule has been used to
+// create a Root Lot. The server enforces this too (validate); this JS just
+// makes the lock visible instead of surprising the user with a save error.
 
 frappe.ui.form.on("Lot Naming Rule", {
     refresh(frm) {
@@ -14,14 +13,13 @@ frappe.ui.form.on("Lot Naming Rule", {
                 const lots = r.message || 0;
                 if (!lots) return;
 
-                ["product", "lot_code_prefix", "yarns"].forEach((f) =>
+                ["product", "lot_code_prefix", "route", "yarns"].forEach((f) =>
                     frm.set_df_property(f, "read_only", 1));
-                // also stop row add/remove on the child table
                 frm.set_df_property("yarns", "cannot_add_rows", true);
                 frm.set_df_property("yarns", "cannot_delete_rows", true);
 
                 frm.set_intro(
-                    __("This rule is locked: {0} Root Lot(s) were created with it. Product, Prefix and Yarns can no longer be changed. To change the setup, untick Active and create a new rule.",
+                    __("This rule is locked: {0} Root Lot(s) were created with it. Product, Prefix, Route and Yarns can no longer be changed. To change the setup, untick Active and create a new rule.",
                         [lots]),
                     "orange"
                 );

@@ -5,11 +5,11 @@ from frappe.model.document import Document
 
 class RootLot(Document):
     def validate(self):
-        # keep header totals honest even on manual edits
+        # Totals engine wiring (Phase 3): recompute derived quantities from
+        # the Lot Receipts child table + live Stock Ledger balances.
+        # Guarded import so Phase 2 installs cleanly before events/ exists.
         try:
-            from lot_trace.events.lot_factory_v2 import _apply_derived
-            _apply_derived(self)
-        except Exception:
-            # never block a save because of a totals hiccup
-            frappe.log_error(frappe.get_traceback(),
-                             "Root Lot totals recompute failed")
+            from lot_trace.events.lot_factory import apply_derived
+        except ImportError:
+            return
+        apply_derived(self)

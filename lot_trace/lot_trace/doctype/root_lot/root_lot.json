@@ -1,31 +1,34 @@
 {
  "actions": [],
  "autoname": "field:lot_code",
- "creation": "2026-07-21 10:00:00.000000",
+ "creation": "2026-07-21 12:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "lot_code",
   "product",
   "naming_rule",
+  "route",
   "column_break_ids",
   "serial",
   "period",
+  "uom",
   "intake_complete",
   "section_order",
   "status",
   "current_stage",
   "column_break_order",
   "sales_order",
-  "end_customer",
+  "customer",
+  "remarks",
   "section_receipts",
   "lot_receipts",
   "section_totals",
-  "total_yarn_received_kg",
-  "yarn_in_process_kg",
-  "weaved_pcs_received",
+  "received_qty",
+  "yarn_in_process_qty",
+  "weaved_pcs",
   "column_break_totals",
-  "finished_goods_qty",
+  "fg_qty",
   "dispatched_qty"
  ],
  "fields": [
@@ -56,6 +59,14 @@
    "read_only": 1
   },
   {
+   "fieldname": "route",
+   "fieldtype": "Link",
+   "label": "Lot Route",
+   "options": "Lot Route",
+   "read_only": 1,
+   "description": "Copied from the Lot Naming Rule at lot birth. Empty = global stage sequence."
+  },
+  {
    "fieldname": "column_break_ids",
    "fieldtype": "Column Break"
   },
@@ -70,6 +81,12 @@
    "fieldtype": "Data",
    "label": "Period (MMYY)",
    "read_only": 1
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "Yarn UOM",
+   "options": "UOM"
   },
   {
    "default": "0",
@@ -89,16 +106,18 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Open\nIn Process\nCompleted\nClosed",
+   "options": "Open\nIn Process\nCompleted\nShort Closed",
    "in_list_view": 1,
    "in_standard_filter": 1
   },
   {
    "fieldname": "current_stage",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "label": "Current Stage",
+   "options": "Lot Process Stage",
    "read_only": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "column_break_order",
@@ -109,12 +128,19 @@
    "fieldtype": "Link",
    "label": "Sales Order",
    "options": "Sales Order",
+   "search_index": 1,
    "in_standard_filter": 1
   },
   {
-   "fieldname": "end_customer",
-   "fieldtype": "Data",
-   "label": "End Customer"
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "End Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
   },
   {
    "fieldname": "section_receipts",
@@ -125,7 +151,8 @@
    "fieldname": "lot_receipts",
    "fieldtype": "Table",
    "label": "Lot Receipts",
-   "options": "Lot Receipt"
+   "options": "Lot Receipt",
+   "read_only": 1
   },
   {
    "fieldname": "section_totals",
@@ -134,23 +161,22 @@
   },
   {
    "default": "0",
-   "fieldname": "total_yarn_received_kg",
+   "fieldname": "received_qty",
    "fieldtype": "Float",
-   "label": "Total Yarn Received (Kg)",
+   "label": "Total Yarn Received",
    "read_only": 1,
    "in_list_view": 1
   },
   {
    "default": "0",
-   "fieldname": "yarn_in_process_kg",
+   "fieldname": "yarn_in_process_qty",
    "fieldtype": "Float",
-   "label": "Yarn In Process (Kg)",
-   "read_only": 1,
-   "description": "Current NT + DY batch balance"
+   "label": "Yarn In Process (NT+DY balance)",
+   "read_only": 1
   },
   {
    "default": "0",
-   "fieldname": "weaved_pcs_received",
+   "fieldname": "weaved_pcs",
    "fieldtype": "Float",
    "label": "Weaved Pcs Received",
    "read_only": 1
@@ -161,7 +187,7 @@
   },
   {
    "default": "0",
-   "fieldname": "finished_goods_qty",
+   "fieldname": "fg_qty",
    "fieldtype": "Float",
    "label": "Finished Goods Qty",
    "read_only": 1
@@ -178,10 +204,15 @@
   {
    "group": "Batches",
    "link_doctype": "Batch",
-   "link_fieldname": "custom_root_lot"
+   "link_fieldname": "root_lot"
+  },
+  {
+   "group": "Exceptions",
+   "link_doctype": "Lot Exception",
+   "link_fieldname": "root_lot"
   }
  ],
- "modified": "2026-07-21 10:00:00.000000",
+ "modified": "2026-07-21 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Lot Trace",
  "name": "Root Lot",
@@ -192,15 +223,15 @@
    "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1
   },
   {
-   "create": 1, "email": 1, "export": 1, "print": 1,
-   "read": 1, "report": 1, "role": "Stock User", "share": 1, "write": 1
+   "create": 1, "delete": 1, "email": 1, "export": 1, "print": 1,
+   "read": 1, "report": 1, "role": "Lot Manager", "share": 1, "write": 1
   },
   {
-   "read": 1, "report": 1, "role": "Stock Manager", "create": 1,
-   "delete": 1, "write": 1, "export": 1, "print": 1, "email": 1, "share": 1
+   "email": 1, "export": 1, "print": 1, "read": 1, "report": 1,
+   "role": "Lot User", "share": 1
   }
  ],
- "search_fields": "product,status,sales_order",
+ "search_fields": "product,status,sales_order,current_stage",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

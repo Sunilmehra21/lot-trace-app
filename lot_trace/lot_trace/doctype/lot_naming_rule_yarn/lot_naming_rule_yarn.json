@@ -1,6 +1,6 @@
 {
  "actions": [],
- "creation": "2026-07-21 10:00:00.000000",
+ "creation": "2026-07-21 12:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -27,20 +27,21 @@
    "options": "Primary\nSecondary",
    "reqd": 1,
    "in_list_view": 1,
-   "columns": 3
+   "columns": 2,
+   "description": "Primary yarn's receipt creates a NEW lot; Secondary yarns join the oldest open lot (FIFO)."
   },
   {
    "fieldname": "item_abbr",
    "fieldtype": "Data",
-   "label": "Abbr",
+   "label": "Abbr (batch name)",
    "reqd": 1,
    "in_list_view": 1,
    "columns": 2,
-   "description": "Short code used in batch names, e.g. A"
+   "description": "Short code used in batch names, e.g. 'A' -> LOT-A-NT"
   }
  ],
  "istable": 1,
- "modified": "2026-07-21 10:00:00.000000",
+ "modified": "2026-07-21 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Lot Trace",
  "name": "Lot Naming Rule Yarn",

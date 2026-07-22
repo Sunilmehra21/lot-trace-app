@@ -1,0 +1,48 @@
+{
+ "actions": [],
+ "creation": "2026-07-21 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "mixing_policy",
+  "weaving_tolerance_pct"
+ ],
+ "fields": [
+  {
+   "default": "Block",
+   "fieldname": "mixing_policy",
+   "fieldtype": "Select",
+   "label": "Lot Mixing Policy",
+   "options": "Block\nWarn\nAllow",
+   "reqd": 1,
+   "description": "Block: one root lot per stock document (Lot Manager can override with 'Allow Mixed Lots', logged). Warn: allowed but logged. Allow: no check."
+  },
+  {
+   "default": "2",
+   "fieldname": "weaving_tolerance_pct",
+   "fieldtype": "Float",
+   "label": "Weaving Tolerance %",
+   "description": "Allowed % deviation from the BOM yarn consumption when receiving weaved pcs"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-21 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Lot Trace",
+ "name": "Lot Trace Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1, "print": 1, "read": 1, "role": "System Manager",
+   "share": 1, "write": 1, "create": 1
+  },
+  {
+   "email": 1, "print": 1, "read": 1, "role": "Lot Manager",
+   "share": 1, "write": 1, "create": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

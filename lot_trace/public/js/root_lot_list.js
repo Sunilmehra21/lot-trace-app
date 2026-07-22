@@ -1,4 +1,4 @@
-// V7 — Root Lot list buttons: "Create from Stock" + bulk cleanup delete.
+// Root Lot list buttons: "Create from Stock" + bulk "Delete Lot (cleanup)".
 
 frappe.listview_settings["Root Lot"] = {
     onload(listview) {
@@ -24,7 +24,7 @@ frappe.listview_settings["Root Lot"] = {
                               });
                           }
                       } },
-                    { fieldname: "qty", label: __("Quantity (kg)"),
+                    { fieldname: "qty", label: __("Quantity"),
                       fieldtype: "Float", reqd: 1 },
                 ],
                 primary_action_label: __("Create Lot"),
