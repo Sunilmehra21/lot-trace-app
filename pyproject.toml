@@ -3,7 +3,7 @@ name = "lot_trace"
 authors = [
     {name = "Rangsutra", email = "sunil.mehra@rangsutra.com"}
 ]
-description = "Lot traceability for textile manufacturing (yarn - dyeing - weaving - cutting)"
+description = "Lot traceability on native Batch for ERPNext v14 - greige yarn to finished garment"
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
@@ -11,3 +11,7 @@ dynamic = ["version"]
 [build-system]
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
+[
+tool.bench.frappe-dependencies
+]
+frappe = ">=14.0.0,<15.0.0"
