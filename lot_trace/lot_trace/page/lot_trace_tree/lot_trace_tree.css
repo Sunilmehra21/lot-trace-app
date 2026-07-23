@@ -1,0 +1,446 @@
+/* Lot Trace Tree Page Styles */
+
+:root {
+	--color-nt: #8b7fbf;    /* NT: purple */
+	--color-dy: #4a90e2;    /* DY: blue */
+	--color-wv: #52c9b3;    /* WV: teal */
+	--color-ct: #f5a623;    /* CT: orange */
+	--color-st: #f8c471;    /* ST: amber */
+	--color-em: #c79ed8;    /* EM: violet */
+	--color-fn: #7ed321;    /* FN: green */
+	--color-pk: #8b6f47;    /* PK: brown */
+	--color-fg: #e85d75;    /* FG: pink */
+}
+
+.lot-trace-tree-container {
+	padding: 20px;
+	max-width: 1400px;
+}
+
+.page-head {
+	margin-bottom: 30px;
+}
+
+.toolbar {
+	display: flex;
+	gap: 10px;
+	margin-bottom: 20px;
+	flex-wrap: wrap;
+}
+
+.toolbar button {
+	padding: 8px 16px;
+	border: 1px solid #ddd;
+	background: white;
+	cursor: pointer;
+	border-radius: 4px;
+	font-size: 13px;
+}
+
+.toolbar button:hover {
+	background: #f5f5f5;
+	border-color: #999;
+}
+
+/* Lot summary card */
+.lot-summary {
+	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+	color: white;
+	padding: 20px;
+	border-radius: 8px;
+	margin-bottom: 25px;
+	box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.lot-summary-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 15px;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.lot-code {
+	font-size: 24px;
+	font-weight: bold;
+}
+
+.lot-status {
+	display: inline-block;
+	padding: 4px 12px;
+	background: rgba(255,255,255,0.2);
+	border-radius: 20px;
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+}
+
+.lot-status.open { background: rgba(122, 211, 33, 0.3); }
+.lot-status.in-process { background: rgba(74, 144, 226, 0.3); }
+.lot-status.completed { background: rgba(76, 175, 80, 0.3); }
+.lot-status.short-closed { background: rgba(255, 193, 7, 0.3); }
+
+.lot-details {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+	gap: 20px;
+}
+
+.detail-item {
+	display: flex;
+	flex-direction: column;
+}
+
+.detail-label {
+	font-size: 11px;
+	text-transform: uppercase;
+	opacity: 0.8;
+	letter-spacing: 0.5px;
+	margin-bottom: 4px;
+}
+
+.detail-value {
+	font-size: 16px;
+	font-weight: bold;
+}
+
+/* Stage Progress Panel */
+.stage-progress {
+	background: white;
+	border: 1px solid #e0e0e0;
+	border-radius: 8px;
+	padding: 20px;
+	margin-bottom: 25px;
+}
+
+.progress-title {
+	font-size: 13px;
+	font-weight: 600;
+	margin-bottom: 12px;
+	color: #333;
+	text-transform: uppercase;
+}
+
+.progress-bar-container {
+	display: flex;
+	height: 30px;
+	background: #f5f5f5;
+	border-radius: 4px;
+	overflow: hidden;
+	margin-bottom: 10px;
+	box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.progress-bar-fill {
+	background: linear-gradient(90deg, #52c9b3, #4a90e2);
+	transition: width 0.3s ease;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: white;
+	font-size: 12px;
+	font-weight: bold;
+}
+
+.progress-text {
+	font-size: 12px;
+	color: #666;
+	margin-bottom: 15px;
+}
+
+/* Stage legend */
+.legend {
+	background: #f9f9f9;
+	border: 1px solid #e0e0e0;
+	border-radius: 4px;
+	padding: 12px;
+}
+
+.legend-title {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	margin-bottom: 8px;
+	color: #666;
+}
+
+.legend-items {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.legend-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	padding: 4px 8px;
+	background: white;
+	border-radius: 3px;
+	border: 1px solid #ddd;
+}
+
+.legend-dot {
+	width: 12px;
+	height: 12px;
+	border-radius: 2px;
+	flex-shrink: 0;
+}
+
+/* Stage chips and batch nodes */
+.batch-node {
+	background: white;
+	border: 1px solid #e0e0e0;
+	border-radius: 8px;
+	padding: 16px;
+	margin-bottom: 15px;
+	transition: all 0.2s ease;
+}
+
+.batch-node:hover {
+	box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+	border-color: #999;
+}
+
+.batch-node.collapsed .batch-details {
+	display: none;
+}
+
+.batch-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 12px;
+	cursor: pointer;
+	user-select: none;
+}
+
+.batch-toggle {
+	display: inline-block;
+	width: 20px;
+	text-align: center;
+	font-weight: bold;
+	color: #667eea;
+}
+
+.batch-title {
+	flex: 1;
+	font-weight: 600;
+	color: #333;
+	margin-left: 8px;
+}
+
+.stage-chip {
+	display: inline-block;
+	padding: 4px 12px;
+	border-radius: 20px;
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	color: white;
+	margin-right: 8px;
+}
+
+.stage-chip.nt { background: var(--color-nt); }
+.stage-chip.dy { background: var(--color-dy); }
+.stage-chip.wv { background: var(--color-wv); }
+.stage-chip.ct { background: var(--color-ct); }
+.stage-chip.st { background: var(--color-st); }
+.stage-chip.em { background: var(--color-em); }
+.stage-chip.fn { background: var(--color-fn); }
+.stage-chip.pk { background: var(--color-pk); }
+.stage-chip.fg { background: var(--color-fg); }
+
+.batch-summary {
+	display: flex;
+	gap: 20px;
+	flex-wrap: wrap;
+	font-size: 12px;
+	margin-top: 8px;
+}
+
+.summary-item {
+	display: flex;
+	flex-direction: column;
+}
+
+.summary-label {
+	color: #999;
+	font-size: 11px;
+	margin-bottom: 2px;
+}
+
+.summary-value {
+	color: #333;
+	font-weight: bold;
+	font-size: 13px;
+}
+
+/* Batch details table */
+.batch-details {
+	margin-top: 12px;
+	border-top: 1px solid #f0f0f0;
+	padding-top: 12px;
+}
+
+.movement-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+.movement-table th {
+	text-align: left;
+	padding: 8px;
+	background: #f5f5f5;
+	border-bottom: 1px solid #e0e0e0;
+	font-weight: 600;
+	color: #666;
+	text-transform: uppercase;
+	font-size: 11px;
+}
+
+.movement-table td {
+	padding: 8px;
+	border-bottom: 1px solid #f0f0f0;
+	color: #333;
+}
+
+.movement-table tr:hover {
+	background: #f9f9f9;
+}
+
+.qty-in {
+	color: #4caf50;
+	font-weight: bold;
+}
+
+.qty-out {
+	color: #f44336;
+	font-weight: bold;
+}
+
+/* Voucher links */
+.voucher-link {
+	color: #667eea;
+	text-decoration: none;
+	cursor: pointer;
+	font-weight: 500;
+}
+
+.voucher-link:hover {
+	text-decoration: underline;
+}
+
+/* Loss badges */
+.loss-badge {
+	display: inline-block;
+	padding: 4px 8px;
+	border-radius: 4px;
+	font-size: 11px;
+	font-weight: bold;
+	margin-left: 8px;
+}
+
+.loss-badge.green {
+	background: #e8f5e9;
+	color: #2e7d32;
+	border: 1px solid #4caf50;
+}
+
+.loss-badge.red {
+	background: #ffebee;
+	color: #c62828;
+	border: 1px solid #f44336;
+}
+
+/* Transfer markers */
+.transfer-badge {
+	display: inline-block;
+	background: #e0e0e0;
+	color: #666;
+	padding: 3px 8px;
+	border-radius: 3px;
+	font-size: 11px;
+	margin-right: 6px;
+}
+
+/* Merge badges */
+.merge-badge {
+	display: inline-block;
+	background: #fff3e0;
+	color: #e65100;
+	padding: 4px 8px;
+	border-radius: 3px;
+	font-size: 11px;
+	margin-top: 6px;
+}
+
+/* Pending stages */
+.pending-stage {
+	opacity: 0.5;
+	background: #f5f5f5;
+}
+
+.pending-label {
+	color: #999;
+	font-style: italic;
+	font-size: 11px;
+}
+
+/* Side panel */
+.side-panel {
+	position: fixed;
+	right: 0;
+	top: 0;
+	width: 350px;
+	height: 100vh;
+	background: white;
+	border-left: 1px solid #ddd;
+	padding: 20px;
+	overflow-y: auto;
+	box-shadow: -2px 0 8px rgba(0,0,0,0.1);
+	display: none;
+	z-index: 1000;
+}
+
+.side-panel.active {
+	display: block;
+}
+
+.panel-close {
+	float: right;
+	cursor: pointer;
+	font-size: 20px;
+	color: #999;
+}
+
+.panel-close:hover {
+	color: #333;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+	.lot-details {
+		grid-template-columns: 1fr 1fr;
+	}
+
+	.batch-header {
+		flex-wrap: wrap;
+	}
+
+	.movement-table {
+		font-size: 11px;
+	}
+
+	.movement-table td,
+	.movement-table th {
+		padding: 6px;
+	}
+
+	.side-panel {
+		width: 100%;
+	}
+}

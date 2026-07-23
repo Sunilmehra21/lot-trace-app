@@ -67,27 +67,42 @@ frappe.pages["lot-trace-tree"].on_page_load = function (wrapper) {
 
 		(data.batches || []).forEach((b, i) => {
 			const cid = "lot-tree-batch-" + i;
+			const stageCls = (b.stage || "").toLowerCase();
+			const lossBadge = (b.loss_pct === null || b.loss_pct === undefined) ? "" :
+				`<span class="loss-badge ${b.loss_over_tolerance ? "red" : "green"}">
+					${__("Loss")}: ${b.loss_pct}%</span>`;
 			html += `
-			<div class="frappe-card" style="padding:12px;margin-bottom:10px;margin-left:25px;">
-				<div style="cursor:pointer;" data-toggle-target="${cid}">
-					<b>${esc(b.stage)}</b> ·
-					<a href="/app/batch/${encodeURIComponent(b.batch)}">${esc(b.batch)}</a>
-					<span class="text-muted">— ${esc(b.item)}</span>
-					<span class="pull-right float-right"><b>${__("Balance")}: ${b.balance}</b>
-						<span class="text-muted small">(${b.movements.length} ${__("movements")})</span></span>
+			<div class="batch-node">
+				<div class="batch-header" data-toggle-target="${cid}">
+					<span class="batch-toggle">▶</span>
+					<span class="stage-chip ${esc(stageCls)}">${esc(b.stage)}</span>
+					<span class="batch-title">
+						<a href="/app/batch/${encodeURIComponent(b.batch)}">${esc(b.batch)}</a>
+						<span class="text-muted">— ${esc(b.item)}</span>
+					</span>
+					${lossBadge}
+					<span class="pull-right float-right">
+						${b.transfer_qty ? `<span class="transfer-badge">⇄ ${b.transfer_qty}</span>` : ""}
+						<span class="cell-qty in">${__("In")}: ${b.in_qty}</span>
+						&nbsp;<span class="cell-qty out">${__("Out")}: ${b.out_qty}</span>
+						&nbsp;<b>${__("Balance")}: ${b.balance}</b>
+						<span class="text-muted small">(${b.movements.length} ${__("movements")})</span>
+					</span>
 				</div>
-				<div id="${cid}" style="display:none;margin-top:10px;">
-					<table class="table table-bordered table-sm small" style="margin:0;">
+				<div id="${cid}" class="batch-details" style="display:none;">
+					<table class="movement-table table table-bordered table-sm small" style="margin:0;">
 						<thead><tr><th>${__("Date")}</th><th>${__("Voucher")}</th>
-							<th>${__("Warehouse")}</th><th class="text-right">${__("Qty")}</th></tr></thead>
+							<th>${__("Party")}</th><th>${__("Warehouse")}</th>
+							<th class="text-right">${__("Qty")}</th></tr></thead>
 						<tbody>
-						${b.movements.map((m) => `<tr>
+						${b.movements.map((m) => `<tr${m.is_transfer ? ' style="background:#f5f5f5;"' : ""}>
 							<td>${esc(m.date)}</td>
-							<td><a href="/app/${frappe.router.slug(m.voucher_type)}/${encodeURIComponent(m.voucher_no)}">
+							<td><a class="voucher-link" href="/app/${frappe.router.slug(m.voucher_type)}/${encodeURIComponent(m.voucher_no)}">
 								${esc(m.voucher_type)}: ${esc(m.voucher_no)}</a></td>
+							<td>${esc(m.party || "")}</td>
 							<td>${esc(m.warehouse)}</td>
-							<td class="text-right ${m.qty < 0 ? "text-danger" : "text-success"}">
-								${m.qty} ${esc(m.uom)}</td>
+							<td class="text-right ${m.is_transfer ? "" : (m.qty < 0 ? "qty-out" : "qty-in")}">
+								${m.is_transfer ? "⇄ " : ""}${m.qty} ${esc(m.uom)}</td>
 						</tr>`).join("")}
 						</tbody>
 					</table>

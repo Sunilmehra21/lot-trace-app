@@ -161,14 +161,32 @@ def _stage_balance(root_lot, stages):
 
 
 def _stage_inflow(root_lot, stages):
+    """Sum of positive SLE movements for a stage's batches, with same-voucher
+    +/- pairs on the SAME batch (a Material Transfer between warehouses)
+    netted out first so an internal transfer is never double-counted as
+    inflow (Phase 3A5 transfer double-count fix, applied to the totals
+    engine as well as the tree/flow pages)."""
     batches = _lot_batches(root_lot, stages)
     if not batches:
         return 0.0
-    row = frappe.db.sql(
-        "SELECT SUM(actual_qty) FROM `tabStock Ledger Entry` "
-        "WHERE batch_no IN %(b)s AND is_cancelled = 0 AND actual_qty > 0",
-        {"b": tuple(batches)})
-    return flt(row[0][0])
+    rows = frappe.db.sql("""
+        SELECT batch_no, voucher_type, voucher_no, actual_qty
+        FROM `tabStock Ledger Entry`
+        WHERE batch_no IN %(b)s AND is_cancelled = 0
+    """, {"b": tuple(batches)}, as_dict=True)
+
+    by_voucher = {}
+    for r in rows:
+        by_voucher.setdefault((r.batch_no, r.voucher_type, r.voucher_no),
+                              []).append(flt(r.actual_qty))
+
+    total_in = 0.0
+    for qtys in by_voucher.values():
+        pos = sum(q for q in qtys if q > 0)
+        neg = sum(-q for q in qtys if q < 0)
+        transfer = min(pos, neg)
+        total_in += pos - transfer
+    return total_in
 
 
 def _dispatched_qty(root_lot):

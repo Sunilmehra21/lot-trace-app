@@ -6,6 +6,7 @@
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 from lot_trace.events import common, lot_factory
 

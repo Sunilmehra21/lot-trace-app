@@ -36,21 +36,55 @@ frappe.pages["lot-flow"].on_page_load = function (wrapper) {
 		return `<span class="indicator-pill ${color}">${frappe.utils.escape_html(status || "")}</span>`;
 	}
 
+	let cellRegistry = {};
+	let cellSeq = 0;
+
+	function openVoucherDialog(cellKey) {
+		const cell = cellRegistry[cellKey];
+		if (!cell) return;
+		const d = new frappe.ui.Dialog({
+			title: __("All Transactions"),
+			fields: [{
+				fieldname: "html", fieldtype: "HTML",
+			}],
+		});
+		const rows = (cell.vouchers || []).map((v) => `
+			<tr>
+				<td>${frappe.utils.escape_html(v.date || "")}</td>
+				<td class="voucher-type">${frappe.utils.escape_html(v.voucher_type)}</td>
+				<td><a class="voucher-link" href="/app/${frappe.router.slug(v.voucher_type)}/${encodeURIComponent(v.voucher_no)}" onclick="return true;">
+					${frappe.utils.escape_html(v.voucher_no)}</a></td>
+				<td class="text-right ${v.qty < 0 ? "voucher-qty-out" : "voucher-qty-in"}">${v.qty}</td>
+			</tr>`).join("");
+		d.fields_dict.html.$wrapper.html(`
+			<table class="vouchers-table">
+				<thead><tr><th>${__("Date")}</th><th>${__("Type")}</th>
+					<th>${__("Voucher")}</th><th class="text-right">${__("Qty")}</th></tr></thead>
+				<tbody>${rows}</tbody>
+			</table>`);
+		d.show();
+	}
+
 	function cellHtml(cell) {
 		if (!cell) return '<span class="text-muted">—</span>';
+		const key = "c" + (cellSeq++);
+		cellRegistry[key] = cell;
 		let html = `<div style="line-height:1.35">
 			<div><b>${cell.balance}</b> <small>${frappe.utils.escape_html(cell.uom || "")}</small></div>
-			<div class="small text-muted">${__("In")} ${cell.in_qty} · ${__("Out")} ${cell.out_qty}</div>`;
+			<div class="small"><span class="cell-qty in">${__("In")} ${cell.in_qty}</span>
+				&nbsp;<span class="cell-qty out">${__("Out")} ${cell.out_qty}</span></div>`;
 		if (cell.first_voucher) {
 			const v = cell.first_voucher;
-			const more = cell.voucher_count > 1
-				? ` <span class="text-muted">+${cell.voucher_count - 1}</span>` : "";
 			html += `<div class="small">
-				<a href="/app/${frappe.router.slug(v.voucher_type)}/${encodeURIComponent(v.voucher_no)}">
-				${frappe.utils.escape_html(v.voucher_no)}</a>${more}</div>`;
+				<a class="voucher-link" href="/app/${frappe.router.slug(v.voucher_type)}/${encodeURIComponent(v.voucher_no)}">
+				${frappe.utils.escape_html(v.voucher_no)}</a>`;
+			if (cell.voucher_count > 1) {
+				html += ` <span class="voucher-more" data-cell-key="${key}">+${cell.voucher_count - 1}</span>`;
+			}
+			html += `</div>`;
 		}
 		(cell.sold_to || []).forEach((s) => {
-			html += `<div class="small text-warning">@ ${frappe.utils.escape_html(s.party)}: ${s.qty}</div>`;
+			html += `<div class="custody-badge">@ ${frappe.utils.escape_html(s.party)}: ${s.qty}</div>`;
 		});
 		return html + "</div>";
 	}
@@ -65,6 +99,8 @@ frappe.pages["lot-flow"].on_page_load = function (wrapper) {
 	}
 
 	function render(data) {
+		cellRegistry = {};
+		cellSeq = 0;
 		const t = data.totals || {};
 		let html = `
 		<div class="row" style="margin-bottom:15px;">
@@ -113,6 +149,9 @@ frappe.pages["lot-flow"].on_page_load = function (wrapper) {
 
 		html += "</tbody></table></div>";
 		$body.html(html);
+		$body.find(".voucher-more").on("click", function () {
+			openVoucherDialog($(this).attr("data-cell-key"));
+		});
 	}
 
 	load();

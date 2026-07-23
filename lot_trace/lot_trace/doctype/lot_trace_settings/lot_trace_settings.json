@@ -5,17 +5,20 @@
  "engine": "InnoDB",
  "field_order": [
   "mixing_policy",
-  "weaving_tolerance_pct"
+  "weaving_tolerance_pct",
+  "column_break_1",
+  "repair_issue_doctype",
+  "repair_receipt_doctype"
  ],
  "fields": [
   {
    "default": "Block",
    "fieldname": "mixing_policy",
    "fieldtype": "Select",
-   "label": "Lot Mixing Policy",
+   "label": "Lot Mixing Policy (per transaction)",
    "options": "Block\nWarn\nAllow",
    "reqd": 1,
-   "description": "Block: one root lot per stock document (Lot Manager can override with 'Allow Mixed Lots', logged). Warn: allowed but logged. Allow: no check."
+   "description": "Block: one root lot per stock document (Lot Manager can override with 'Allow Mixed Lots', logged). Warn: allowed but logged as exception. Allow: no check."
   },
   {
    "default": "2",
@@ -23,6 +26,22 @@
    "fieldtype": "Float",
    "label": "Weaving Tolerance %",
    "description": "Allowed % deviation from the BOM yarn consumption when receiving weaved pcs"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Repair Issue",
+   "fieldname": "repair_issue_doctype",
+   "fieldtype": "Data",
+   "label": "Repair Issue DocType Name"
+  },
+  {
+   "default": "Repair Receipt",
+   "fieldname": "repair_receipt_doctype",
+   "fieldtype": "Data",
+   "label": "Repair Receipt DocType Name"
   }
  ],
  "issingle": 1,

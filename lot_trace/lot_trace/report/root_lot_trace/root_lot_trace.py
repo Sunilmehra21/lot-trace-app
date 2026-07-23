@@ -30,6 +30,8 @@ def get_columns():
          "fieldtype": "Data", "width": 140},
         {"fieldname": "voucher_no", "label": _("Voucher"),
          "fieldtype": "Dynamic Link", "options": "voucher_type", "width": 170},
+        {"fieldname": "party", "label": _("Party"),
+         "fieldtype": "Data", "width": 140},
         {"fieldname": "warehouse", "label": _("Warehouse"),
          "fieldtype": "Link", "options": "Warehouse", "width": 150},
         {"fieldname": "qty", "label": _("Qty"),
@@ -39,6 +41,33 @@ def get_columns():
         {"fieldname": "running_balance", "label": _("Batch Balance"),
          "fieldtype": "Float", "width": 110},
     ]
+
+
+# Voucher type -> party fieldname, and whether that party is a supplier
+# (inbound-side document) or a customer (outbound-side document).
+SUPPLIER_VOUCHERS = {
+    "Purchase Receipt": "supplier",
+    "Purchase Invoice": "supplier",
+    "Subcontracting Receipt": "supplier",
+}
+CUSTOMER_VOUCHERS = {
+    "Delivery Note": "customer",
+    "Sales Invoice": "customer",
+}
+
+
+def _party_map(voucher_type, voucher_nos):
+    """Bulk-fetch supplier/customer for a set of vouchers of one type."""
+    voucher_nos = [v for v in set(voucher_nos) if v]
+    if not voucher_nos:
+        return {}
+    fieldname = SUPPLIER_VOUCHERS.get(voucher_type) or CUSTOMER_VOUCHERS.get(voucher_type)
+    if not fieldname or not frappe.db.has_column(voucher_type, fieldname):
+        return {}
+    rows = frappe.db.get_all(
+        voucher_type, filters={"name": ["in", voucher_nos]},
+        fields=["name", fieldname])
+    return {r.name: r.get(fieldname) for r in rows}
 
 
 def get_data(filters):
@@ -63,13 +92,22 @@ def get_data(filters):
         SELECT b.root_lot, b.process_stage, sle.batch_no, sle.item_code,
                sle.posting_date, sle.posting_time, sle.voucher_type,
                sle.voucher_no, sle.warehouse, sle.actual_qty AS qty,
-               sle.stock_uom AS uom
+               sle.stock_uom AS uom,
+               COALESCE(lps.sequence, 99) AS stage_seq
         FROM `tabStock Ledger Entry` sle
         JOIN `tabBatch` b ON b.name = sle.batch_no
+        LEFT JOIN `tabLot Process Stage` lps ON lps.name = b.process_stage
         WHERE {conditions}
-        ORDER BY b.root_lot, b.process_stage,
+        ORDER BY b.root_lot, stage_seq,
                  sle.posting_date, sle.posting_time, sle.name
     """.format(conditions=" AND ".join(conditions)), params, as_dict=True)
+
+    # Resolve party (supplier/customer) per voucher, grouped by voucher_type
+    # to keep it to one query per voucher type (Phase 3A4).
+    by_type = {}
+    for r in rows:
+        by_type.setdefault(r.voucher_type, []).append(r.voucher_no)
+    party_lookup = {vt: _party_map(vt, nos) for vt, nos in by_type.items()}
 
     balances = {}
     for r in rows:
@@ -77,4 +115,6 @@ def get_data(filters):
         balances[key] = balances.get(key, 0) + flt(r.qty)
         r.running_balance = round(balances[key], 3)
         r.qty = flt(r.qty)
+        r.party = party_lookup.get(r.voucher_type, {}).get(r.voucher_no)
+        r.pop("stage_seq", None)
     return rows

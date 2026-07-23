@@ -61,7 +61,8 @@ def reassign_lot(root_lot, new_product, reason):
 
 @frappe.whitelist()
 def get_at_weaver_balance(root_lot=None, weaver=None):
-    """At-weaver balance: dyed yarn sent to weaver minus BOM-consumed."""
+    """At-weaver balance: dyed yarn sent to weaver minus BOM-consumed.
+    Weaver can be a Customer with represents_supplier=1, or a Supplier name."""
     frappe.has_permission("Root Lot", "read", throw=True)
     filters = {}
     if root_lot:
@@ -74,9 +75,14 @@ def get_at_weaver_balance(root_lot=None, weaver=None):
     if not batches:
         return []
 
+    # Map weaver (customer) to filter via represents_supplier if needed
+    weaver_customers = None
+    if weaver:
+        weaver_customers = _customers_for_supplier(weaver)
+
     rows = []
     for b in batches:
-        sent = _qty_sent_to_weaver(b.name, weaver)
+        sent = _qty_sent_to_weaver(b.name, weaver_customers or weaver)
         consumed = _qty_consumed_from_batch(b.name)
         balance = flt(sent) - flt(consumed)
         if abs(balance) > EPS or sent > EPS:
@@ -92,14 +98,24 @@ def get_at_weaver_balance(root_lot=None, weaver=None):
 
 
 def _qty_sent_to_weaver(batch_no, weaver_customer=None):
-    """Qty of this batch shipped via Delivery Note / Sales Invoice."""
+    """Qty of this batch shipped via Delivery Note / Sales Invoice.
+    weaver_customer can be a string or a list of customer names."""
     filters = "sle.batch_no = %s AND sle.is_cancelled = 0 AND sle.actual_qty < 0"
     params = [batch_no]
+
     if weaver_customer:
-        dn_filter = " AND dn.customer = %s"
-        params.append(weaver_customer)
+        if isinstance(weaver_customer, list):
+            if not weaver_customer:
+                return 0.0
+            placeholders = ",".join(["%s"] * len(weaver_customer))
+            dn_filter = f" AND dn.customer IN ({placeholders})"
+            params.extend(weaver_customer)
+        else:
+            dn_filter = " AND dn.customer = %s"
+            params.append(weaver_customer)
     else:
         dn_filter = ""
+
     row = frappe.db.sql("""
         SELECT COALESCE(SUM(-sle.actual_qty), 0)
         FROM `tabStock Ledger Entry` sle
@@ -168,3 +184,34 @@ def get_effective_lot_status(root_lot):
         "dispatched_qty": lot.dispatched_qty,
         "intake_complete": lot.intake_complete,
     }
+
+
+# ============================================================================
+# Helper functions for customer/supplier mapping and filtering
+# ============================================================================
+
+def _customers_for_supplier(supplier_or_customer_name):
+    """Map a supplier name to customer record(s) via represents_supplier field.
+    Returns a list of customer names, or [supplier_or_customer_name] if no match."""
+    if not supplier_or_customer_name:
+        return []
+
+    # Check if it's already a customer with represents_supplier
+    cust = frappe.db.get_value(
+        "Customer",
+        supplier_or_customer_name,
+        ["name", "represents_supplier"])
+    if cust and cust[1]:  # represents_supplier = True
+        return [supplier_or_customer_name]
+
+    # Try to find customers that have this as represents_supplier
+    customers = frappe.db.get_list(
+        "Customer",
+        filters={"represents_supplier": supplier_or_customer_name},
+        pluck="name")
+
+    if customers:
+        return customers
+
+    # Fallback: return the input as-is (might be a customer already)
+    return [supplier_or_customer_name] if supplier_or_customer_name else []
