@@ -155,7 +155,8 @@
 	min-width: 120px;
 	display: flex;
 	align-items: center;
-	sticky: left 0;
+	position: sticky;
+	left: 0;
 	z-index: 5;
 }
 
