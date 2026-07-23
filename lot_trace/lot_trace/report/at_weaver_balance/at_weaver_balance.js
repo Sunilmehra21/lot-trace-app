@@ -10,12 +10,9 @@ frappe.query_reports["At Weaver Balance"] = {
 		},
 		{
 			fieldname: "weaver",
-			label: __("Weaver (Customer)"),
+			label: __("Weaver (Supplier)"),
 			fieldtype: "Link",
-			options: "Customer",
-			get_query() {
-				return { filters: { represents_supplier: 1 } };
-			},
+			options: "Supplier",
 		},
 	],
 };
