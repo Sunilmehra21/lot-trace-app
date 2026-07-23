@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
 # Lot Flow Chart API: one row per Root Lot, one column per process stage.
-# Powers the /app/lot-flow page.
+# Powers the /app/lot-flow page (grid board like the mockup).
 
 import frappe
+from frappe import _
 from frappe.utils import flt
 
 YARN_STAGES = {"NT", "DY"}
@@ -22,9 +22,9 @@ def get_lot_flow(sales_order=None, product=None, root_lot=None):
 
     lots = frappe.get_all(
         "Root Lot", filters=lot_filters,
-        fields=["name", "product", "sales_order", "received_qty", "uom",
-                "current_stage", "fg_qty", "dispatched_qty", "status",
-                "weaved_pcs", "yarn_in_process_qty"],
+        fields=["name", "product", "supplier", "sales_order", "received_qty",
+                "uom", "current_stage", "fg_qty", "dispatched_qty", "status",
+                "purchase_receipt"],
         order_by="name")
 
     stages = frappe.get_all(
@@ -42,8 +42,9 @@ def get_lot_flow(sales_order=None, product=None, root_lot=None):
             "Lot Exception", {"root_lot": lot.name, "resolved": 0})
 
         totals["yarn_received"] += flt(lot.received_qty)
-        totals["yarn_in_process"] += flt(lot.yarn_in_process_qty)
-        totals["weaved_pcs"] += flt(lot.weaved_pcs)
+        totals["yarn_in_process"] += sum(
+            c["balance"] for s, c in cells.items() if s in YARN_STAGES)
+        totals["weaved_pcs"] += cells.get("WV", {}).get("in_qty", 0)
         totals["fg_qty"] += flt(lot.fg_qty)
         totals["dispatched"] += flt(lot.dispatched_qty)
         totals["open_exceptions"] += open_exc
@@ -51,11 +52,10 @@ def get_lot_flow(sales_order=None, product=None, root_lot=None):
         rows.append({
             "lot": lot.name,
             "product": lot.product,
-            "sales_order": lot.sales_order,
+            "supplier": lot.supplier,
+            "purchase_receipt": lot.purchase_receipt,
             "status": lot.status,
             "current_stage": lot.current_stage,
-            "received_qty": flt(lot.received_qty),
-            "uom": lot.uom,
             "open_exceptions": open_exc,
             "cells": cells,
         })
@@ -68,8 +68,9 @@ def get_lot_flow(sales_order=None, product=None, root_lot=None):
 
 
 def build_cells(root_lot):
-    """Per-stage cell data: qty in/out/balance (transfers netted), full
-    voucher list, and DY custody (sold to whom)."""
+    """Per-stage cell data for one lot: qty in/out/balance (transfers netted),
+    the FULL voucher list (so the page can show all of them, not just the
+    first), and DY custody (sold to whom, balance there)."""
     sle = frappe.db.sql("""
         SELECT b.process_stage AS stage, sle.voucher_type, sle.voucher_no,
                sle.actual_qty, sle.stock_uom, sle.posting_date
@@ -79,6 +80,7 @@ def build_cells(root_lot):
         ORDER BY sle.posting_date, sle.posting_time, sle.name
     """, root_lot, as_dict=True)
 
+    # group by stage, then net internal transfers per voucher
     stages = {}
     for m in sle:
         stages.setdefault(m.stage, []).append(m)
@@ -94,8 +96,7 @@ def build_cells(root_lot):
         sold_to = {}
         for key, rows_ in by_voucher.items():
             pos = sum(flt(m.actual_qty) for m in rows_ if flt(m.actual_qty) > 0)
-            neg = sum(abs(flt(m.actual_qty)) for m in rows_
-                      if flt(m.actual_qty) < 0)
+            neg = sum(abs(flt(m.actual_qty)) for m in rows_ if flt(m.actual_qty) < 0)
             transfer = min(pos, neg)
             in_qty += pos - transfer
             out_qty += neg - transfer
@@ -106,6 +107,7 @@ def build_cells(root_lot):
                     "qty": round(pos - neg, 2),
                     "date": str(rows_[0].posting_date),
                 })
+            # DY custody: sold via DN/SI
             if (stage == "DY" and key[0] in ("Delivery Note", "Sales Invoice")
                     and neg > 0):
                 customer = frappe.db.get_value(key[0], key[1], "customer")
@@ -119,6 +121,7 @@ def build_cells(root_lot):
             "uom": movements[0].stock_uom if movements else "",
             "first_voucher": vouchers[0] if vouchers else None,
             "voucher_count": len(vouchers),
+            # full list so the page can render/open every transaction
             "vouchers": vouchers,
             "sold_to": [{"party": p, "qty": round(q, 2)}
                         for p, q in sold_to.items()],

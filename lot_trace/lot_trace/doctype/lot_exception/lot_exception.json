@@ -1,116 +1,50 @@
 {
  "actions": [],
- "autoname": "format:LEX-{#####}",
- "creation": "2026-07-21 12:00:00.000000",
+ "autoname": "format:LEX-{YY}-{#####}",
+ "creation": "2026-07-11 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": [
-  "exception_type",
-  "severity",
-  "root_lot",
-  "column_break_1",
-  "erp_doc_type",
-  "erp_doc_name",
-  "section_details",
-  "message",
-  "section_resolution",
-  "resolved",
-  "resolution_note"
- ],
+ "field_order": ["exception_type", "severity", "root_lot", "column_break_1",
+  "erp_doc_type", "erp_doc_name", "section_msg", "message", "section_res",
+  "resolved", "resolved_by", "resolved_on", "resolution_note"],
  "fields": [
-  {
-   "fieldname": "exception_type",
-   "fieldtype": "Select",
-   "label": "Exception Type",
-   "options": "Mixed Lots Warning\nMixed Lots Override\nLoss Out of Tolerance\nMissing Root Lot\nManual Override\nOther",
-   "reqd": 1,
-   "in_list_view": 1,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "severity",
-   "fieldtype": "Select",
-   "label": "Severity",
-   "options": "Info\nWarning\nCritical",
-   "reqd": 1,
-   "in_list_view": 1,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "root_lot",
-   "fieldtype": "Link",
-   "label": "Root Lot",
-   "options": "Root Lot",
-   "in_list_view": 1,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "column_break_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "erp_doc_type",
-   "fieldtype": "Link",
-   "label": "ERP Doc Type",
-   "options": "DocType"
-  },
-  {
-   "fieldname": "erp_doc_name",
-   "fieldtype": "Dynamic Link",
-   "label": "ERP Document",
-   "options": "erp_doc_type",
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "section_details",
-   "fieldtype": "Section Break",
-   "label": "Details"
-  },
-  {
-   "fieldname": "message",
-   "fieldtype": "Small Text",
-   "label": "Message"
-  },
-  {
-   "fieldname": "section_resolution",
-   "fieldtype": "Section Break",
-   "label": "Resolution"
-  },
-  {
-   "default": "0",
-   "fieldname": "resolved",
-   "fieldtype": "Check",
-   "label": "Resolved",
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "resolution_note",
-   "fieldtype": "Small Text",
-   "label": "Resolution Note"
-  }
+  {"fieldname": "exception_type", "fieldtype": "Select", "label": "Exception Type",
+   "reqd": 1, "in_list_view": 1, "in_standard_filter": 1,
+   "options": "Missing Root Lot\nMixed Lots Warning\nMixed Lots Override\nLoss Out of Tolerance\nCancel With Downstream\nWeaver Balance Mismatch\nManual Override"},
+  {"fieldname": "severity", "fieldtype": "Select", "label": "Severity", "reqd": 1,
+   "options": "Info\nWarning\nError", "in_list_view": 1, "in_standard_filter": 1},
+  {"fieldname": "root_lot", "fieldtype": "Link", "options": "Root Lot",
+   "label": "Root Lot", "in_list_view": 1, "search_index": 1},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "erp_doc_type", "fieldtype": "Link", "options": "DocType",
+   "label": "ERP DocType"},
+  {"fieldname": "erp_doc_name", "fieldtype": "Dynamic Link", "options": "erp_doc_type",
+   "label": "ERP Document"},
+  {"fieldname": "section_msg", "fieldtype": "Section Break"},
+  {"fieldname": "message", "fieldtype": "Small Text", "label": "Message",
+   "in_list_view": 1},
+  {"fieldname": "section_res", "fieldtype": "Section Break", "label": "Resolution"},
+  {"fieldname": "resolved", "fieldtype": "Check", "label": "Resolved",
+   "in_standard_filter": 1},
+  {"fieldname": "resolved_by", "fieldtype": "Link", "options": "User",
+   "label": "Resolved By", "read_only": 1},
+  {"fieldname": "resolved_on", "fieldtype": "Datetime", "label": "Resolved On",
+   "read_only": 1},
+  {"fieldname": "resolution_note", "fieldtype": "Small Text", "label": "Resolution Note"}
  ],
  "links": [],
- "modified": "2026-07-21 12:00:00.000000",
+ "modified": "2026-07-11 00:00:00",
  "modified_by": "Administrator",
  "module": "Lot Trace",
  "name": "Lot Exception",
  "owner": "Administrator",
  "permissions": [
-  {
-   "create": 1, "delete": 1, "email": 1, "export": 1, "print": 1,
-   "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1
-  },
-  {
-   "create": 1, "delete": 1, "email": 1, "export": 1, "print": 1,
-   "read": 1, "report": 1, "role": "Lot Manager", "share": 1, "write": 1
-  },
-  {
-   "email": 1, "export": 1, "print": 1, "read": 1, "report": 1,
-   "role": "Lot User", "share": 1
-  }
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1,
+   "export": 1, "report": 1},
+  {"role": "Lot Manager", "read": 1, "write": 1, "create": 1, "export": 1, "report": 1},
+  {"role": "Lot User", "read": 1, "report": 1}
  ],
- "sort_field": "creation",
+ "sort_field": "modified",
  "sort_order": "DESC",
- "states": [],
- "track_changes": 1
+ "states": []
 }

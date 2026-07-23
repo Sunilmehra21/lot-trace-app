@@ -1,45 +1,55 @@
 # -*- coding: utf-8 -*-
-# Root Lot deletion with cleanup (Root Lot is not submittable, so delete —
-# not cancel — is the correct removal action).
+# Phase 6.3 — Root Lot deletion with cleanup.
+#
+# Root Lot is NOT a submittable doctype, so there is no Cancel button on it —
+# delete is the correct action. But Frappe's link check blocks the delete
+# because batches / receipt rows reference the lot (and the PR side pointed
+# back), creating the deadlock the user hit. This API breaks the cycle in the
+# right order: detach batches -> clear receipt rows -> force-delete the lot.
+#
+# It never deletes stock documents (PR/SR) or batches themselves — those stay,
+# only OUR links are removed. Cancel/delete the PRs separately if needed
+# (the before_cancel hook now allows that).
 
 import frappe
-from frappe import _
 
 
 @frappe.whitelist()
 def delete_root_lot(root_lot):
+    """Delete a Root Lot after detaching everything that references it."""
     if not frappe.has_permission("Root Lot", "delete"):
-        frappe.throw(_("Not permitted to delete Root Lots."),
-                     frappe.PermissionError)
+        frappe.throw("Not permitted to delete Root Lots.")
     if not frappe.db.exists("Root Lot", root_lot):
-        frappe.throw(_("Root Lot {0} not found.").format(root_lot))
+        frappe.throw(f"Root Lot {root_lot} not found.")
 
-    # detach batches (they may hold posted stock — always KEPT)
+    # 1) Detach batches (kept — they may hold posted stock).
     batches = frappe.get_all(
-        "Batch", filters={"root_lot": root_lot}, pluck="name")
+        "Batch", filters={"custom_root_lot": root_lot}, pluck="name"
+    )
     for b in batches:
         frappe.db.set_value("Batch", b, {
-            "root_lot": None, "process_stage": None,
+            "custom_root_lot": None,
+            "custom_stage": None,
         }, update_modified=False)
 
-    # clear back-references on core documents
-    for dt, field in [("Purchase Order Item", "root_lot"),
-                      ("Purchase Order", "root_lot"),
-                      ("Purchase Receipt Item", "root_lot"),
-                      ("Subcontracting Receipt Item", "root_lot"),
-                      ("Work Order", "root_lot")]:
-        meta = frappe.get_meta(dt)
-        if meta.get_field(field):
+    # 2) Clear back-references on stock documents that point at this lot.
+    for dt, field in [
+        ("Purchase Order", "custom_root_lot"),
+        ("Subcontracting Receipt Item", "custom_root_lot"),
+    ]:
+        if frappe.get_meta(dt).get_field(field):
             frappe.db.sql(
-                "UPDATE `tab{0}` SET {1} = NULL WHERE {1} = %s".format(
-                    dt, field), (root_lot,))
+                f"UPDATE `tab{dt}` SET {field} = NULL WHERE {field} = %s",
+                (root_lot,),
+            )
 
+    # 3) Delete the lot. force=1 skips the link check (we just cleaned up);
+    #    child Lot Receipt rows are deleted automatically with the parent.
     frappe.delete_doc("Root Lot", root_lot, force=1, ignore_permissions=True)
+
     return {
         "deleted": root_lot,
         "batches_detached": len(batches),
-        "message": _(
-            "Root Lot {0} deleted. {1} batch(es) detached (batches and "
-            "stock documents are kept)."
-        ).format(root_lot, len(batches)),
+        "message": f"Root Lot {root_lot} deleted. {len(batches)} batch(es) "
+                   f"detached (batches and stock documents are kept).",
     }

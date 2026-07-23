@@ -1,33 +1,15 @@
 {
- "add_total_row": 0,
- "columns": [],
- "creation": "2026-07-22 10:00:00.000000",
- "disable_prepared_report": 1,
- "disabled": 0,
- "docstatus": 0,
  "doctype": "Report",
- "filters": [],
- "idx": 0,
- "is_standard": "Yes",
- "letter_head": null,
- "modified": "2026-07-22 10:00:00.000000",
- "modified_by": "Administrator",
- "module": "Lot Trace",
  "name": "Order Lot Overview",
- "owner": "Administrator",
- "prepared_report": 0,
- "ref_doctype": "Root Lot",
  "report_name": "Order Lot Overview",
+ "ref_doctype": "Root Lot",
  "report_type": "Script Report",
+ "is_standard": "Yes",
+ "module": "Lot Trace",
+ "add_total_row": 1,
+ "disabled": 0,
+ "owner": "Administrator",
  "roles": [
-  {
-   "role": "Lot Manager"
-  },
-  {
-   "role": "Lot User"
-  },
-  {
-   "role": "System Manager"
-  }
+  {"role": "System Manager"}, {"role": "Lot Manager"}, {"role": "Lot User"}
  ]
 }

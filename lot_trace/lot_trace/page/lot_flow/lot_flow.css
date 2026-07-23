@@ -1,436 +1,219 @@
-/* Lot Flow Chart Page Styles */
-
-:root {
-	--color-nt: #8b7fbf;    /* NT: purple */
-	--color-dy: #4a90e2;    /* DY: blue */
-	--color-wv: #52c9b3;    /* WV: teal */
-	--color-ct: #f5a623;    /* CT: orange */
-	--color-st: #f8c471;    /* ST: amber */
-	--color-em: #c79ed8;    /* EM: violet */
-	--color-fn: #7ed321;    /* FN: green */
-	--color-pk: #8b6f47;    /* PK: brown */
-	--color-fg: #e85d75;    /* FG: pink */
-	--external-amber: #fff9e6;
-	--external-border: #ffc107;
-}
-
-.lot-flow-container {
-	padding: 20px;
-}
-
-.flow-toolbar {
-	display: flex;
-	gap: 15px;
-	margin-bottom: 20px;
-	flex-wrap: wrap;
-	align-items: center;
-}
-
-.filter-group {
-	display: flex;
-	gap: 10px;
-	align-items: center;
-}
-
-.filter-group label {
-	font-size: 12px;
-	font-weight: 600;
-	color: #666;
-	text-transform: uppercase;
-	margin-right: 5px;
-}
-
-.filter-group input,
-.filter-group select {
-	padding: 8px 12px;
-	border: 1px solid #ddd;
-	border-radius: 4px;
-	font-size: 12px;
-	min-width: 150px;
-}
-
-/* Summary cards */
-.flow-summary {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-	gap: 15px;
-	margin-bottom: 25px;
-}
-
-.summary-card {
-	background: white;
-	border: 1px solid #e0e0e0;
-	border-radius: 8px;
-	padding: 15px;
-	text-align: center;
-	box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-	transition: all 0.2s ease;
-}
-
-.summary-card:hover {
-	box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-	border-color: #999;
-}
-
-.summary-card-icon {
-	font-size: 24px;
-	margin-bottom: 8px;
-	opacity: 0.7;
-}
-
-.summary-card-label {
-	font-size: 11px;
-	font-weight: 600;
-	color: #999;
-	text-transform: uppercase;
-	margin-bottom: 6px;
-	letter-spacing: 0.5px;
-}
-
-.summary-card-value {
-	font-size: 20px;
-	font-weight: bold;
-	color: #333;
-}
-
-/* Grid container */
-.flow-grid-wrapper {
+.lfc-wrap {
+	padding-top: 8px;
 	overflow-x: auto;
-	background: white;
-	border: 1px solid #e0e0e0;
+}
+.lfc-board {
+	min-width: 900px;
+	background: var(--card-bg, #fff);
+	border: 1px solid var(--border-color, #e2e6e9);
 	border-radius: 8px;
+	padding: 16px;
 }
-
-.flow-grid {
+.lfc-grid {
 	display: grid;
-	grid-auto-flow: column;
-	grid-template-rows: auto auto 1fr;
-	gap: 0;
-	min-width: 100%;
-	padding: 0;
+	gap: 8px;
+	margin-bottom: 10px;
+	align-items: stretch;
 }
-
-/* Header row with stage names */
-.stage-header {
-	display: contents;
-}
-
-.stage-name {
-	padding: 12px;
-	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-	color: white;
-	font-weight: bold;
+.lfc-stagehead {
 	text-align: center;
-	border-right: 1px solid rgba(255,255,255,0.2);
-	border-bottom: 1px solid #e0e0e0;
-	position: sticky;
-	top: 0;
-	z-index: 10;
-	min-width: 100px;
-	font-size: 12px;
-	text-transform: uppercase;
-}
-
-/* External/warehouse stages */
-.stage-name.external {
-	background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
-}
-
-.stage-name.fg {
-	background: linear-gradient(135deg, #e85d75 0%, #d81b60 100%);
-}
-
-/* Lot rows */
-.lot-row {
-	display: contents;
-}
-
-.lot-label {
-	padding: 12px;
-	background: #f9f9f9;
-	border-right: 1px solid #e0e0e0;
-	border-bottom: 1px solid #e0e0e0;
-	font-weight: 600;
-	font-size: 12px;
-	min-width: 120px;
-	display: flex;
-	align-items: center;
-	position: sticky;
-	left: 0;
-	z-index: 5;
-}
-
-.lot-label a {
-	color: #667eea;
-	text-decoration: none;
-}
-
-.lot-label a:hover {
-	text-decoration: underline;
-}
-
-.lot-status-badge {
-	display: inline-block;
-	padding: 2px 6px;
-	border-radius: 3px;
-	font-size: 10px;
-	margin-left: 6px;
-	text-transform: uppercase;
-	font-weight: bold;
-	color: white;
-}
-
-.lot-status-badge.open { background: #4caf50; }
-.lot-status-badge.in-process { background: #2196f3; }
-.lot-status-badge.completed { background: #ff9800; }
-.lot-status-badge.short-closed { background: #f44336; }
-
-/* Stage cells */
-.stage-cell {
-	padding: 12px;
-	border-right: 1px solid #e0e0e0;
-	border-bottom: 1px solid #e0e0e0;
-	min-width: 100px;
-	background: white;
-	position: relative;
 	font-size: 11px;
+	font-weight: 700;
+	color: #4c5a67;
+	text-transform: uppercase;
+	letter-spacing: 0.4px;
+	padding: 8px 4px;
+	border-radius: 6px;
+	background: #f4f6f8;
+	border: 1px solid #e8ebee;
+}
+.lfc-stagehead small {
+	display: block;
+	font-weight: 500;
+	color: #909aa4;
+	text-transform: none;
+	letter-spacing: 0;
+	margin-top: 2px;
+}
+.lfc-ext {
+	background: #fff8e1;
+	border-color: #f5e9bd;
+}
+.lfc-fin {
+	background: #e8f5e9;
+	border-color: #cde8cf;
+}
+.lfc-lotlabel {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
-}
-
-.stage-cell.empty {
-	background: repeating-linear-gradient(
-		45deg,
-		transparent,
-		transparent 10px,
-		rgba(200, 200, 200, 0.1) 10px,
-		rgba(200, 200, 200, 0.1) 20px
-	);
-	color: #999;
-	text-align: center;
 	justify-content: center;
-	font-style: italic;
+	gap: 3px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	font-weight: 700;
+	font-size: 12.5px;
+	color: #fff;
 }
-
-.stage-cell.current {
-	background: rgba(102, 126, 234, 0.05);
-	border-left: 3px solid #667eea;
-}
-
-/* Qty display */
-.cell-qty {
-	font-weight: bold;
-	color: #333;
-	font-size: 12px;
-}
-
-.cell-qty.in {
-	color: #4caf50;
-}
-
-.cell-qty.out {
-	color: #f44336;
-}
-
-/* Voucher chips */
-.voucher-chip {
-	display: inline-block;
-	padding: 4px 8px;
-	background: #e3f2fd;
-	border: 1px solid #2196f3;
-	border-radius: 3px;
-	color: #1976d2;
-	font-size: 10px;
-	cursor: pointer;
+.lfc-lotlabel a {
+	color: #fff;
 	text-decoration: none;
-	transition: all 0.2s ease;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
 }
-
-.voucher-chip:hover {
-	background: #bbdefb;
-	border-color: #1565c0;
+.lfc-lotlabel a:hover {
+	text-decoration: underline;
+	color: #fff;
 }
-
-.voucher-link {
-	display: inline-block;
-	color: #2196f3;
-	text-decoration: none;
-	cursor: pointer;
+.lfc-lotlabel small {
 	font-weight: 500;
-	font-size: 10px;
-	padding: 2px 0;
+	color: rgba(255, 255, 255, 0.8);
+	font-size: 10.5px;
 }
-
-.voucher-link:hover {
+.lfc-exc {
+	color: #ffe082;
+	font-weight: 700;
+}
+.lfc-cell {
+	border: 1.5px solid var(--border-color, #e2e6e9);
+	border-left-width: 4px;
+	border-radius: 8px;
+	padding: 7px 9px;
+	background: #fbfcfd;
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-height: 74px;
+	transition: box-shadow 0.12s;
+}
+.lfc-cell:hover {
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+.lfc-cellempty {
+	background: repeating-linear-gradient(45deg, #fafbfc, #fafbfc 6px,
+		#f2f4f6 6px, #f2f4f6 12px);
+	border-style: dashed;
+	border-left-width: 1.5px;
+}
+.lfc-current {
+	background: #f0f7fe;
+	border-color: #2490ef;
+}
+.lfc-batch {
+	font-weight: 700;
+	font-size: 11.5px;
+}
+.lfc-qty {
+	font-size: 11px;
+}
+.lfc-doc {
+	font-size: 10px;
+	color: #1470b8;
+	background: #eef6fd;
+	border: 1px solid #d3e8f9;
+	border-radius: 4px;
+	padding: 0 5px;
+	align-self: flex-start;
+}
+.lfc-doc a {
+	color: #1470b8;
+	text-decoration: none;
+}
+.lfc-doc a:hover {
 	text-decoration: underline;
 }
-
-.voucher-more {
-	display: inline-block;
-	padding: 4px 8px;
-	background: #f5f5f5;
-	border: 1px solid #ddd;
-	border-radius: 3px;
-	color: #666;
-	font-size: 10px;
+.lfc-more {
+	margin-left: 4px;
+	font-weight: 700;
+	color: #b26a00 !important;
 	cursor: pointer;
-	font-weight: bold;
-	transition: all 0.2s ease;
 }
-
-.voucher-more:hover {
-	background: #e0e0e0;
-	border-color: #999;
-}
-
-/* Custody badge */
-.custody-badge {
-	display: inline-block;
-	padding: 3px 6px;
-	background: #fff9c4;
-	border: 1px solid #fbc02d;
-	border-radius: 3px;
-	color: #f57f17;
+.lfc-cust {
 	font-size: 10px;
-	font-weight: 600;
-	margin-top: 3px;
+	color: #8a6d00;
 }
-
-/* Arrow between stages */
-.stage-arrow {
+.lfc-arrow {
 	position: absolute;
-	right: -10px;
+	right: -9px;
 	top: 50%;
 	transform: translateY(-50%);
-	color: #ddd;
-	font-weight: bold;
+	color: #b3bcc4;
 	font-size: 12px;
 	z-index: 2;
 }
-
-/* Voucher dialog/modal */
-.voucher-dialog {
-	position: fixed;
-	top: 0;
-	left: 0;
-	width: 100%;
-	height: 100%;
-	background: rgba(0,0,0,0.5);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	z-index: 2000;
-}
-
-.voucher-dialog.hidden {
-	display: none;
-}
-
-.voucher-dialog-content {
-	background: white;
+.lfc-chip {
+	font-size: 10px;
+	font-weight: 700;
+	padding: 1px 7px;
 	border-radius: 8px;
-	padding: 20px;
-	max-width: 600px;
-	max-height: 80vh;
-	overflow-y: auto;
-	box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+	align-self: flex-start;
+	background: #fff3e0;
+	color: #b26a00;
 }
-
-.dialog-header {
+.lfc-summary {
 	display: flex;
-	justify-content: space-between;
+	gap: 12px;
+	margin-top: 14px;
+	flex-wrap: wrap;
+}
+.lfc-sumcard {
+	flex: 1;
+	min-width: 150px;
+	border: 1px solid var(--border-color, #e2e6e9);
+	border-radius: 8px;
+	padding: 10px 14px;
+	background: #fbfcfd;
+}
+.lfc-sumcard h5 {
+	font-size: 10.5px;
+	color: #74808b;
+	text-transform: uppercase;
+	letter-spacing: 0.4px;
+	margin-bottom: 6px;
+}
+.lfc-big {
+	font-size: 17px;
+	font-weight: 700;
+}
+.lfc-sub {
+	font-size: 11px;
+	color: #74808b;
+	margin-top: 2px;
+}
+.lfc-empty {
+	padding: 60px 0;
+	text-align: center;
+}
+/* vouchers dialog (+N click) */
+.lfc-dlg {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.lfc-dlgrow {
+	display: grid;
+	grid-template-columns: 1fr auto auto auto;
+	gap: 10px;
 	align-items: center;
-	margin-bottom: 15px;
-	padding-bottom: 10px;
-	border-bottom: 1px solid #e0e0e0;
-}
-
-.dialog-title {
-	font-size: 16px;
-	font-weight: bold;
-	color: #333;
-}
-
-.dialog-close {
-	cursor: pointer;
-	font-size: 20px;
-	color: #999;
-}
-
-.dialog-close:hover {
-	color: #333;
-}
-
-.vouchers-table {
-	width: 100%;
-	border-collapse: collapse;
+	padding: 6px 8px;
+	border: 1px solid #e8ebee;
+	border-radius: 6px;
 	font-size: 12px;
 }
-
-.vouchers-table th {
-	text-align: left;
-	padding: 10px;
-	background: #f5f5f5;
-	border-bottom: 1px solid #e0e0e0;
+.lfc-dlgrow a {
 	font-weight: 600;
-	color: #666;
-	text-transform: uppercase;
+}
+.lfc-dlgtype {
+	color: #74808b;
 	font-size: 11px;
 }
-
-.vouchers-table td {
-	padding: 10px;
-	border-bottom: 1px solid #f0f0f0;
+.lfc-dlgqty.lfc-pos {
+	color: #2e7d32;
+	font-weight: 700;
 }
-
-.vouchers-table tr:hover {
-	background: #f9f9f9;
+.lfc-dlgqty.lfc-neg {
+	color: #c62828;
+	font-weight: 700;
 }
-
-.voucher-type {
-	font-weight: 600;
-	color: #667eea;
-}
-
-.voucher-qty-in {
-	color: #4caf50;
-	font-weight: bold;
-}
-
-.voucher-qty-out {
-	color: #f44336;
-	font-weight: bold;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-	.flow-summary {
-		grid-template-columns: repeat(2, 1fr);
-	}
-
-	.stage-cell {
-		min-width: 80px;
-		padding: 8px;
-		font-size: 10px;
-	}
-
-	.stage-name {
-		padding: 8px;
-		font-size: 10px;
-	}
-
-	.lot-label {
-		min-width: 80px;
-		padding: 8px;
-		font-size: 11px;
-	}
-
-	.voucher-dialog-content {
-		max-width: 90%;
-		padding: 15px;
-	}
+.lfc-dlgdate {
+	color: #74808b;
+	font-size: 11px;
 }

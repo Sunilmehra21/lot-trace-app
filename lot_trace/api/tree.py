@@ -1,150 +1,175 @@
 # -*- coding: utf-8 -*-
-# Lot Trace Tree API: hierarchical view of a lot's batches and movements.
-# Transfer double-count fix (Phase 3A5): a Material Transfer writes both a
-# -qty and +qty SLE row for the SAME batch; if not netted this doubles the
-# in/out totals shown in the tree ("received 800, issued 800 -> shows 0
-# balance / 0 in DY stage" style bugs). We net same-voucher +/- pairs into a
-# single "transfer" amount excluded from in/out, and surface separate
-# in_qty/out_qty/transfer_qty per batch plus per-movement party + a
-# tolerance-based loss badge (Phase 3A4/A6).
+# Phase 6.2 HOTFIX — Lot Trace Tree API.
+# FIXED: the deployed site had the old module without get_trace_tree.
+# This file defines get_trace_tree (whitelisted) and keeps get_lot_tree as an
+# alias so any older client script keeps working. Accepts flexible filters.
 
 import frappe
-from frappe import _
 from frappe.utils import flt
 
-from lot_trace.events import common
-
-# Same voucher-type -> party-field map used by the Root Lot Trace report.
-SUPPLIER_VOUCHERS = {
-    "Purchase Receipt": "supplier",
-    "Purchase Invoice": "supplier",
-    "Subcontracting Receipt": "supplier",
-}
-CUSTOMER_VOUCHERS = {
-    "Delivery Note": "customer",
-    "Sales Invoice": "customer",
-}
-
-
-def _party_for_voucher(voucher_type, voucher_no):
-    fieldname = SUPPLIER_VOUCHERS.get(voucher_type) or CUSTOMER_VOUCHERS.get(voucher_type)
-    if not fieldname or not voucher_no:
-        return None
-    if not frappe.db.has_column(voucher_type, fieldname):
-        return None
-    return frappe.db.get_value(voucher_type, voucher_no, fieldname)
+from lot_trace.events import resolver_v2
 
 
 @frappe.whitelist()
-def get_lot_tree(root_lot):
-    """Tree: Root Lot -> stage batches -> stock movements."""
-    frappe.has_permission("Root Lot", "read", throw=True)
+def get_trace_tree(root_lot=None, product=None, sales_order=None, **kwargs):
+    """Build the primary/secondary sibling tree for one Root Lot.
+
+    Accepts root_lot directly, or resolves the latest lot from product /
+    sales order so the report page works with any filter combination.
+    """
+    root_lot = _resolve_root_lot(root_lot, product, sales_order)
     if not root_lot:
-        return {}
+        frappe.throw("Select a Root Lot (or a Product with at least one lot).")
 
-    lot = frappe.db.get_value(
-        "Root Lot", root_lot,
-        ["name", "lot_code", "product", "status", "current_stage",
-         "received_qty", "uom", "fg_qty", "dispatched_qty", "weaved_pcs",
-         "yarn_in_process_qty", "sales_order"],
-        as_dict=True)
-    if not lot:
-        return {}
+    rl = frappe.get_doc("Root Lot", root_lot)
+    lot_code = rl.get("lot_code") or rl.name
 
+    yarns = _yarns_for_lot(rl)
     batches = frappe.get_all(
         "Batch",
-        filters={"root_lot": root_lot},
-        fields=["name", "item", "process_stage"])
+        filters={"custom_root_lot": root_lot},
+        fields=["name", "item", "custom_stage"],
+    )
 
-    stage_seq = {s.name: s.sequence for s in frappe.get_all(
-        "Lot Process Stage", fields=["name", "sequence"])}
-    batches.sort(key=lambda b: stage_seq.get(b.process_stage, 99))
+    chains = []
+    for y in yarns:
+        chain = {
+            "role": y.get("role") or "Primary",
+            "abbr": y.get("item_abbr"),
+            "yarn_item": y.get("yarn_item"),
+            "stages": {},
+        }
+        for stage in ("NT", "DY"):
+            stage_batches = [
+                b for b in batches
+                if b.custom_stage == stage
+                and resolver_v2.extract_base_yarn_item(b.item) == y.get("yarn_item")
+            ]
+            if stage_batches:
+                chain["stages"][stage] = _stage_node(stage_batches)
+        chain["loss_pct"] = _chain_loss(chain)
+        chains.append(chain)
 
-    tol = flt(common.get_settings().weaving_tolerance_pct) or 0
-
-    nodes = []
-    prev_out_qty = None
-    for b in batches:
-        sle = frappe.db.sql("""
-            SELECT voucher_type, voucher_no, actual_qty, stock_uom,
-                   posting_date, warehouse
-            FROM `tabStock Ledger Entry`
-            WHERE batch_no = %s AND is_cancelled = 0
-            ORDER BY posting_date, posting_time, name
-        """, b.name, as_dict=True)
-
-        # Group rows by voucher so a Material Transfer's +qty/-qty pair on
-        # this SAME batch can be netted instead of double-counted.
-        by_voucher = {}
-        for m in sle:
-            by_voucher.setdefault((m.voucher_type, m.voucher_no), []).append(m)
-
-        in_qty = out_qty = transfer_qty = 0.0
-        movements = []
-        for (vtype, vno), rows_ in by_voucher.items():
-            pos = sum(flt(m.actual_qty) for m in rows_ if flt(m.actual_qty) > 0)
-            neg = sum(abs(flt(m.actual_qty)) for m in rows_ if flt(m.actual_qty) < 0)
-            transfer = min(pos, neg)
-            in_qty += pos - transfer
-            out_qty += neg - transfer
-            transfer_qty += transfer
-            party = _party_for_voucher(vtype, vno)
-            first = rows_[0]
-            if transfer > 0:
-                movements.append({
-                    "voucher_type": vtype, "voucher_no": vno,
-                    "qty": round(transfer, 3), "uom": first.stock_uom,
-                    "date": str(first.posting_date),
-                    "warehouse": first.warehouse, "party": party,
-                    "is_transfer": True,
-                })
-                net = round((pos - neg), 3)
-                if abs(net) > 1e-6:
-                    movements.append({
-                        "voucher_type": vtype, "voucher_no": vno,
-                        "qty": net, "uom": first.stock_uom,
-                        "date": str(first.posting_date),
-                        "warehouse": first.warehouse, "party": party,
-                        "is_transfer": False,
-                    })
-            else:
-                movements.append({
-                    "voucher_type": vtype, "voucher_no": vno,
-                    "qty": round(pos - neg, 3), "uom": first.stock_uom,
-                    "date": str(first.posting_date),
-                    "warehouse": first.warehouse, "party": party,
-                    "is_transfer": False,
-                })
-
-        movements.sort(key=lambda m: m["date"])
-        balance = round(in_qty - out_qty, 2)
-
-        # Loss badge: this stage's In vs the previous stage's Out (BOM-aware
-        # via check_stage_loss's tolerance would need output_item context;
-        # here we use the simple settings tolerance for a quick visual cue).
-        loss_pct = None
-        if prev_out_qty and prev_out_qty > 0:
-            loss_pct = round((prev_out_qty - in_qty) / prev_out_qty * 100, 2)
-        prev_out_qty = out_qty if out_qty else in_qty
-
-        nodes.append({
-            "batch": b.name,
-            "item": b.item,
-            "stage": b.process_stage,
-            "in_qty": round(in_qty, 2),
-            "out_qty": round(out_qty, 2),
-            "transfer_qty": round(transfer_qty, 2),
-            "balance": balance,
-            "loss_pct": loss_pct,
-            "loss_over_tolerance": (loss_pct is not None and tol > 0
-                                    and loss_pct > tol),
-            "movements": movements,
+    # Batches whose base item matches no configured yarn still show up
+    # under an "Other" chain instead of silently disappearing.
+    known_bases = {y.get("yarn_item") for y in yarns}
+    orphans = [
+        b for b in batches
+        if b.custom_stage in ("NT", "DY")
+        and resolver_v2.extract_base_yarn_item(b.item) not in known_bases
+    ]
+    if orphans:
+        chains.append({
+            "role": "Other", "abbr": None, "yarn_item": None,
+            "stages": {"ALL": _stage_node(orphans)}, "loss_pct": None,
         })
 
-    return {"lot": lot, "batches": nodes}
+    shared = {}
+    for stage in ("WV", "CT"):
+        stage_batches = [b for b in batches if b.custom_stage == stage]
+        if stage_batches:
+            shared[stage] = _stage_node(stage_batches)
+
+    return {
+        "lot": lot_code,
+        "root_lot": root_lot,
+        "product": rl.get("product"),
+        "status": rl.get("status"),
+        "chains": chains,
+        "shared": shared,
+    }
 
 
+# Backward-compatible alias for older client scripts.
 @frappe.whitelist()
-def get_trace_tree(root_lot):
-    """Alias kept for older page JS."""
-    return get_lot_tree(root_lot)
+def get_lot_tree(root_lot=None, **kwargs):
+    return get_trace_tree(root_lot=root_lot, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+
+def _resolve_root_lot(root_lot, product, sales_order):
+    if root_lot:
+        # The filter may pass the lot_code instead of the docname.
+        if frappe.db.exists("Root Lot", root_lot):
+            return root_lot
+        by_code = frappe.db.get_value("Root Lot", {"lot_code": root_lot}, "name")
+        if by_code:
+            return by_code
+    if product:
+        rows = frappe.get_all(
+            "Root Lot", filters={"product": product},
+            fields=["name"], order_by="creation desc", limit=1,
+        )
+        if rows:
+            return rows[0].name
+    if sales_order:
+        rl = frappe.db.get_value("Root Lot", {"sales_order": sales_order}, "name")
+        if rl:
+            return rl
+    return None
+
+
+def _yarns_for_lot(rl_doc):
+    """Yarns from the naming rule; falls back to legacy profile, then to
+    Lot Receipt rows so old lots created before Phase 6.1 still render."""
+    rule = rl_doc.get("naming_rule")
+    if rule:
+        yarns = resolver_v2.get_all_yarns_for_rule(rule)
+        if yarns:
+            return yarns
+
+    receipts = rl_doc.get("lot_receipts", []) or []
+    if receipts:
+        return [
+            {"yarn_item": r.yarn_item, "role": "Primary" if i == 0 else "Secondary",
+             "item_abbr": r.item_abbr}
+            for i, r in enumerate(receipts)
+        ]
+
+    # Last resort: derive from the lot's NT batches.
+    nt = frappe.get_all(
+        "Batch", filters={"custom_root_lot": rl_doc.name, "custom_stage": "NT"},
+        fields=["item"],
+    )
+    return [
+        {"yarn_item": b.item, "role": "Primary" if i == 0 else "Secondary",
+         "item_abbr": None}
+        for i, b in enumerate(nt)
+    ]
+
+
+def _stage_node(stage_batches):
+    total_in = total_out = total_bal = 0.0
+    rows = []
+    for b in stage_batches:
+        agg = _batch_movement(b.name)
+        total_in += agg["in_qty"]
+        total_out += agg["out_qty"]
+        total_bal += agg["balance"]
+        rows.append({"batch": b.name, "item": b.item, **agg})
+    return {"in_qty": total_in, "out_qty": total_out, "balance": total_bal,
+            "batches": rows}
+
+
+def _batch_movement(batch_no):
+    rows = frappe.db.sql(
+        """SELECT
+             COALESCE(SUM(CASE WHEN actual_qty > 0 THEN actual_qty ELSE 0 END), 0) AS in_qty,
+             COALESCE(SUM(CASE WHEN actual_qty < 0 THEN -actual_qty ELSE 0 END), 0) AS out_qty,
+             COALESCE(SUM(actual_qty), 0) AS balance
+           FROM `tabStock Ledger Entry`
+           WHERE batch_no = %s AND is_cancelled = 0""",
+        (batch_no,), as_dict=True,
+    )
+    r = rows[0] if rows else {"in_qty": 0, "out_qty": 0, "balance": 0}
+    return {"in_qty": flt(r.in_qty), "out_qty": flt(r.out_qty),
+            "balance": flt(r.balance)}
+
+
+def _chain_loss(chain):
+    nt = chain["stages"].get("NT")
+    dy = chain["stages"].get("DY")
+    if not nt or not dy or nt["out_qty"] <= 0:
+        return None
+    return round((nt["out_qty"] - dy["in_qty"]) / nt["out_qty"] * 100.0, 2)
