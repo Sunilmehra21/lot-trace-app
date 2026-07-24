@@ -1,8 +1,8 @@
 app_name = "lot_trace"
 app_title = "Lot Trace"
-app_publisher = "Your Company"
+app_publisher = "Rangsutra"
 app_description = "Root Lot traceability on native Batch (greige yarn to finished garment)"
-app_email = "erp@yourcompany.com"
+app_email = "sunil.mehra@rangsutra.com"
 app_license = "MIT"
 required_apps = ["erpnext"]
 
