@@ -1,1 +1,2 @@
-# Lot Trace document event handlers.
+# -*- coding: utf-8 -*-
+# Phase 6 events package.

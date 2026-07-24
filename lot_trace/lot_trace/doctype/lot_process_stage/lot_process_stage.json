@@ -1,97 +1,36 @@
 {
  "actions": [],
  "autoname": "field:stage_code",
- "creation": "2026-07-21 12:00:00.000000",
+ "creation": "2026-07-11 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": [
-  "stage_code",
-  "stage_name",
-  "sequence",
-  "column_break_1",
-  "batch_suffix",
-  "expected_loss_pct",
-  "is_external_custody",
-  "active"
- ],
+ "field_order": ["stage_code", "stage_name", "sequence", "batch_suffix",
+  "expected_loss_pct", "is_external_custody", "active"],
  "fields": [
-  {
-   "fieldname": "stage_code",
-   "fieldtype": "Data",
-   "label": "Stage Code",
-   "reqd": 1,
-   "unique": 1,
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "stage_name",
-   "fieldtype": "Data",
-   "label": "Stage Name",
-   "reqd": 1,
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "sequence",
-   "fieldtype": "Int",
-   "label": "Sequence",
-   "reqd": 1,
-   "in_list_view": 1
-  },
-  {
-   "fieldname": "column_break_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "batch_suffix",
-   "fieldtype": "Data",
-   "label": "Batch Suffix",
-   "description": "Suffix used in batch names, e.g. NT -> LOT-A-NT"
-  },
-  {
-   "default": "0",
-   "fieldname": "expected_loss_pct",
-   "fieldtype": "Float",
-   "label": "Expected Loss %",
-   "description": "Fallback loss tolerance when the output item has no BOM"
-  },
-  {
-   "default": "0",
-   "fieldname": "is_external_custody",
-   "fieldtype": "Check",
-   "label": "External Custody",
-   "description": "Material is with an external party at this stage (e.g. weaver)"
-  },
-  {
-   "default": "1",
-   "fieldname": "active",
-   "fieldtype": "Check",
-   "label": "Active",
-   "in_list_view": 1
-  }
+  {"fieldname": "stage_code", "fieldtype": "Data", "label": "Stage Code", "reqd": 1,
+   "unique": 1, "in_list_view": 1},
+  {"fieldname": "stage_name", "fieldtype": "Data", "label": "Stage Name", "reqd": 1,
+   "in_list_view": 1},
+  {"fieldname": "sequence", "fieldtype": "Int", "label": "Sequence", "in_list_view": 1},
+  {"fieldname": "batch_suffix", "fieldtype": "Data", "label": "Batch Suffix", "reqd": 1},
+  {"fieldname": "expected_loss_pct", "fieldtype": "Percent",
+   "label": "Expected Loss % (tolerance)"},
+  {"fieldname": "is_external_custody", "fieldtype": "Check",
+   "label": "External Custody Stage (material at weaver)"},
+  {"fieldname": "active", "fieldtype": "Check", "label": "Active", "default": "1"}
  ],
  "links": [],
- "modified": "2026-07-21 12:00:00.000000",
+ "modified": "2026-07-11 00:00:00",
  "modified_by": "Administrator",
  "module": "Lot Trace",
  "name": "Lot Process Stage",
  "owner": "Administrator",
  "permissions": [
-  {
-   "create": 1, "delete": 1, "email": 1, "export": 1, "print": 1,
-   "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1
-  },
-  {
-   "create": 1, "delete": 1, "email": 1, "export": 1, "print": 1,
-   "read": 1, "report": 1, "role": "Lot Manager", "share": 1, "write": 1
-  },
-  {
-   "email": 1, "export": 1, "print": 1, "read": 1, "report": 1,
-   "role": "Lot User", "share": 1
-  }
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1},
+  {"role": "Lot Manager", "read": 1, "write": 1, "create": 1},
+  {"role": "Lot User", "read": 1}
  ],
  "sort_field": "sequence",
  "sort_order": "ASC",
- "states": [],
- "title_field": "stage_name",
- "track_changes": 1
+ "states": []
 }

@@ -1,13 +1,12 @@
 {
  "actions": [],
- "creation": "2026-07-21 12:00:00.000000",
+ "creation": "2026-07-19 00:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
   "yarn_item",
   "item_abbr",
-  "supplier",
   "nt_batch",
   "received_kg",
   "source_doctype",
@@ -15,63 +14,56 @@
  ],
  "fields": [
   {
+   "columns": 3,
    "fieldname": "yarn_item",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Yarn Item",
    "options": "Item",
-   "reqd": 1,
-   "in_list_view": 1,
-   "columns": 3
+   "reqd": 1
   },
   {
+   "columns": 1,
    "fieldname": "item_abbr",
    "fieldtype": "Data",
-   "label": "Abbr",
    "in_list_view": 1,
-   "columns": 1
+   "label": "Abbr"
   },
   {
-   "fieldname": "supplier",
-   "fieldtype": "Link",
-   "label": "Supplier",
-   "options": "Supplier",
-   "in_list_view": 1,
-   "columns": 2
-  },
-  {
+   "columns": 2,
    "fieldname": "nt_batch",
    "fieldtype": "Link",
-   "label": "Batch",
-   "options": "Batch",
    "in_list_view": 1,
-   "columns": 2
+   "label": "NT Batch",
+   "options": "Batch"
   },
   {
+   "columns": 2,
    "fieldname": "received_kg",
    "fieldtype": "Float",
-   "label": "Received Qty",
    "in_list_view": 1,
-   "columns": 1
+   "label": "Received Kg",
+   "precision": "3"
   },
   {
+   "columns": 2,
    "fieldname": "source_doctype",
-   "fieldtype": "Link",
-   "label": "Source Doctype",
-   "options": "DocType",
-   "hidden": 1
+   "fieldtype": "Data",
+   "label": "Source Type"
   },
   {
+   "columns": 2,
    "fieldname": "source_doc",
    "fieldtype": "Dynamic Link",
-   "label": "Source Doc",
-   "options": "source_doctype",
    "in_list_view": 1,
-   "columns": 2
+   "label": "Source Doc",
+   "options": "source_doctype"
   }
  ],
+ "index_web_pages_for_search": 1,
  "istable": 1,
- "modified": "2026-07-21 12:00:00.000000",
- "modified_by": "Administrator",
+ "links": [],
+ "modified": "2026-07-19 00:00:00.000000",
  "module": "Lot Trace",
  "name": "Lot Receipt",
  "owner": "Administrator",

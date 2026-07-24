@@ -1,65 +1,31 @@
 {
  "actions": [],
- "creation": "2026-07-21 12:00:00.000000",
+ "creation": "2026-07-11 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": [
-  "mixing_policy",
-  "weaving_tolerance_pct",
-  "column_break_1",
-  "repair_issue_doctype",
-  "repair_receipt_doctype"
- ],
- "fields": [
-  {
-   "default": "Block",
-   "fieldname": "mixing_policy",
-   "fieldtype": "Select",
-   "label": "Lot Mixing Policy (per transaction)",
-   "options": "Block\nWarn\nAllow",
-   "reqd": 1,
-   "description": "Block: one root lot per stock document (Lot Manager can override with 'Allow Mixed Lots', logged). Warn: allowed but logged as exception. Allow: no check."
-  },
-  {
-   "default": "2",
-   "fieldname": "weaving_tolerance_pct",
-   "fieldtype": "Float",
-   "label": "Weaving Tolerance %",
-   "description": "Allowed % deviation from the BOM yarn consumption when receiving weaved pcs"
-  },
-  {
-   "fieldname": "column_break_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "Repair Issue",
-   "fieldname": "repair_issue_doctype",
-   "fieldtype": "Data",
-   "label": "Repair Issue DocType Name"
-  },
-  {
-   "default": "Repair Receipt",
-   "fieldname": "repair_receipt_doctype",
-   "fieldtype": "Data",
-   "label": "Repair Receipt DocType Name"
-  }
- ],
  "issingle": 1,
+ "field_order": ["mixing_policy", "column_break_1", "repair_issue_doctype",
+  "repair_receipt_doctype"],
+ "fields": [
+  {"fieldname": "mixing_policy", "fieldtype": "Select",
+   "label": "Lot Mixing Policy (per transaction)", "default": "Block",
+   "options": "Block\nWarn\nAllow",
+   "description": "Block: one root lot per stock document (Lot Manager can override with 'Allow Mixed Lots', logged). Warn: allowed but always logged as exception. Allow: no restriction, nothing logged."},
+  {"fieldname": "column_break_1", "fieldtype": "Column Break"},
+  {"fieldname": "repair_issue_doctype", "fieldtype": "Data",
+   "label": "Repair Issue DocType Name", "default": "Repair Issue"},
+  {"fieldname": "repair_receipt_doctype", "fieldtype": "Data",
+   "label": "Repair Receipt DocType Name", "default": "Repair Receipt"}
+ ],
  "links": [],
- "modified": "2026-07-21 12:00:00.000000",
+ "modified": "2026-07-14 00:00:00",
  "modified_by": "Administrator",
  "module": "Lot Trace",
  "name": "Lot Trace Settings",
  "owner": "Administrator",
  "permissions": [
-  {
-   "email": 1, "print": 1, "read": 1, "role": "System Manager",
-   "share": 1, "write": 1, "create": 1
-  },
-  {
-   "email": 1, "print": 1, "read": 1, "role": "Lot Manager",
-   "share": 1, "write": 1, "create": 1
-  }
+  {"role": "System Manager", "read": 1, "write": 1, "create": 1},
+  {"role": "Lot Manager", "read": 1, "write": 1}
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
