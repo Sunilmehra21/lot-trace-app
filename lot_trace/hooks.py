@@ -16,26 +16,41 @@ doc_events = {
     "Purchase Receipt": {
         "before_submit": "lot_trace.events.purchase_receipt.before_submit",
         "on_submit": "lot_trace.events.purchase_receipt.on_submit",
-        "before_cancel": "lot_trace.events.purchase_receipt.before_cancel",
         "on_cancel": "lot_trace.events.purchase_receipt.on_cancel",
     },
     "Subcontracting Receipt": {
         "before_submit": "lot_trace.events.subcontracting_receipt.before_submit",
         "on_submit": "lot_trace.events.subcontracting_receipt.on_submit",
-        "before_cancel": "lot_trace.events.subcontracting_receipt.before_cancel",
-        "on_cancel": "lot_trace.events.subcontracting_receipt.on_cancel",
     },
-    "Root Lot": {
-        "before_cancel": "lot_trace.events.root_lot_cleanup.before_cancel",
-        "on_trash": "lot_trace.events.root_lot_cleanup.on_trash",
+    "Stock Entry": {
+        "before_submit": "lot_trace.events.stock_entry.before_submit",
+    },
+    "Delivery Note": {
+        "before_submit": "lot_trace.events.delivery.before_submit",
+        "on_submit": "lot_trace.events.delivery.on_submit",
+        "on_cancel": "lot_trace.events.delivery.on_cancel",
+    },
+    "Sales Invoice": {
+        "before_submit": "lot_trace.events.delivery.before_submit",
+        "on_submit": "lot_trace.events.delivery.on_submit",
+        "on_cancel": "lot_trace.events.delivery.on_cancel",
+    },
+    # pre-wired for the already-built custom repair doctypes
+    # (harmless if the doctype names differ - configure in Lot Trace Settings
+    #  and add matching doc_events in the repair app if names differ)
+    "Repair Issue": {
+        "before_submit": "lot_trace.events.repair.before_submit",
+    },
+    "Repair Receipt": {
+        "before_submit": "lot_trace.events.repair.before_submit",
     },
 }
-
+# Root Lot LIST view -> "Create from Stock" + bulk "Delete Lot (cleanup)"
 doctype_list_js = {
     "Root Lot": "public/js/root_lot_list.js",
 }
 
+# Root Lot FORM view -> single "Delete Lot (cleanup)" button
 doctype_js = {
-    "Purchase Receipt": "public/js/purchase_receipt.js",
     "Root Lot": "public/js/root_lot_form.js",
 }
